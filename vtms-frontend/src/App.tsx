@@ -1,5 +1,10 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import { RequireAuth, RequireRole } from './components/RouteGuards';
+import { rolesWithAccess } from './lib/permissions';
 import Layout from './components/Layout';
+import Login from './pages/Login';
+import Unauthorized from './pages/Unauthorized';
 import Dashboard from './pages/Dashboard';
 import Batches from './pages/Batches';
 import BatchDetail from './pages/BatchDetail';
@@ -12,27 +17,33 @@ import Inventory from './pages/Inventory';
 import Financials from './pages/Financials';
 import Graduation from './pages/Graduation';
 import Alumni from './pages/Alumni';
+import AdminStaff from './pages/AdminStaff';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="batches" element={<Batches />} />
-          <Route path="batches/:id" element={<BatchDetail />} />
-          <Route path="trainees" element={<Trainees />} />
-          <Route path="trainees/:id" element={<TraineeProfile />} />
-          <Route path="attendance" element={<Attendance />} />
-          <Route path="competency" element={<Competency />} />
-          <Route path="case-management" element={<CaseManagement />} />
-          <Route path="inventory" element={<Inventory />} />
-          <Route path="financials" element={<Financials />} />
-          <Route path="graduation" element={<Graduation />} />
-          <Route path="alumni" element={<Alumni />} />
-          <Route path="more" element={<div className="p-6 text-gray-500 text-sm">Settings coming soon</div>} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/unauthorized" element={<Unauthorized />} />
+          <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
+            <Route index element={<Dashboard />} />
+            <Route path="batches" element={<Batches />} />
+            <Route path="batches/:id" element={<BatchDetail />} />
+            <Route path="trainees" element={<Trainees />} />
+            <Route path="trainees/:id" element={<TraineeProfile />} />
+            <Route path="attendance" element={<RequireRole roles={rolesWithAccess('attendance')}><Attendance /></RequireRole>} />
+            <Route path="competency" element={<RequireRole roles={rolesWithAccess('competency')}><Competency /></RequireRole>} />
+            <Route path="case-management" element={<RequireRole roles={rolesWithAccess('case_notes')}><CaseManagement /></RequireRole>} />
+            <Route path="inventory" element={<RequireRole roles={rolesWithAccess('inventory')}><Inventory /></RequireRole>} />
+            <Route path="financials" element={<RequireRole roles={rolesWithAccess('financials')}><Financials /></RequireRole>} />
+            <Route path="graduation" element={<RequireRole roles={rolesWithAccess('graduation')}><Graduation /></RequireRole>} />
+            <Route path="alumni" element={<RequireRole roles={rolesWithAccess('alumni')}><Alumni /></RequireRole>} />
+            <Route path="admin/staff" element={<RequireRole roles={['admin']}><AdminStaff /></RequireRole>} />
+            <Route path="more" element={<div className="p-6 text-gray-500 text-sm">Settings coming soon</div>} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
