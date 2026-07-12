@@ -44,6 +44,16 @@ describe('RequireAuth', () => {
     renderWithRouter('/protected');
     expect(screen.getByText('protected content')).toBeDefined();
   });
+
+  it('redirects to /login when the profile is deactivated', () => {
+    mockUseAuth.mockReturnValue({
+      session: { user: { id: '1' } },
+      profile: { id: '1', fullName: 'A', email: 'a@b.com', role: 'admin', active: false },
+      loading: false,
+    });
+    renderWithRouter('/protected');
+    expect(screen.getByText('login page')).toBeDefined();
+  });
 });
 
 describe('RequireRole', () => {
