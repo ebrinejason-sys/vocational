@@ -97,16 +97,20 @@ export default function Graduation() {
   }
 
   // Mark Graduation
-  function handleGradSubmit(e: React.FormEvent) {
+  async function handleGradSubmit(e: React.FormEvent) {
     e.preventDefault();
     setGradError('');
     setGradSuccess('');
     if (!gradForm.traineeId) return setGradError('Please select a trainee.');
     if (!gradForm.graduationDate) return setGradError('Please enter a graduation date.');
-    updateTrainee(gradForm.traineeId, { status: 'graduated', graduationDate: gradForm.graduationDate });
-    const t = trainees.find((t) => t.id === gradForm.traineeId);
-    setGradSuccess(`${t?.firstName} ${t?.lastName} has been marked as graduated.`);
-    setGradForm(defaultGradForm);
+    try {
+      await updateTrainee(gradForm.traineeId, { status: 'graduated', graduationDate: gradForm.graduationDate });
+      const t = trainees.find((t) => t.id === gradForm.traineeId);
+      setGradSuccess(`${t?.firstName} ${t?.lastName} has been marked as graduated.`);
+      setGradForm(defaultGradForm);
+    } catch (err) {
+      setGradError(err instanceof Error ? err.message : 'Failed to update trainee. Check your permissions.');
+    }
   }
 
   // Issue Starter Kit

@@ -47,15 +47,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!mounted || requestId !== latestRequestId) return;
         setSession(nextSession);
         setProfile(nextProfile);
-        // Skip re-fetching batches/trainees on silent background token
-        // refreshes — session/profile state still stays in sync above,
-        // this only avoids burning Supabase API quota on data that
-        // hasn't changed. Also skip INITIAL_SESSION: onAuthStateChange
-        // fires that on attach in parallel with our explicit
-        // getSession() call below for the same session, so honoring it
-        // here would double-fetch on every page load. The initial
-        // getSession() call (no event) and genuine sign-ins still fetch.
-        if (nextProfile && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION') {
+        if (!nextSession) {
+          // Signed out — clear in-memory batches/trainees so a different
+          // user signing in on the same tab never sees stale, previously
+          // fetched session-scoped data before fetchInitialData() resolves.
+          useStore.getState().resetSessionData();
+        } else if (nextProfile && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION') {
+          // Skip re-fetching batches/trainees on silent background token
+          // refreshes — session/profile state still stays in sync above,
+          // this only avoids burning Supabase API quota on data that
+          // hasn't changed. Also skip INITIAL_SESSION: onAuthStateChange
+          // fires that on attach in parallel with our explicit
+          // getSession() call below for the same session, so honoring it
+          // here would double-fetch on every page load. The initial
+          // getSession() call (no event) and genuine sign-ins still fetch.
           useStore.getState().fetchInitialData().catch((err) => console.error('Failed to load initial data', err));
         }
       } catch (err) {

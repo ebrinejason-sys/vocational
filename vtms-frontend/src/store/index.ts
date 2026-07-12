@@ -123,6 +123,7 @@ interface VTMSState {
   dataLoaded: boolean;
 
   fetchInitialData: () => Promise<void>;
+  resetSessionData: () => void;
   setActiveBatch: (id: string) => void;
   addTrainee: (t: Omit<Trainee, 'id'>) => Promise<void>;
   updateTrainee: (id: string, updates: Partial<Trainee>) => Promise<void>;
@@ -181,6 +182,8 @@ export const useStore = create<VTMSState>()(
 
         set({ batches, trainees, activeBatchId, dataLoaded: true });
       },
+
+      resetSessionData: () => set({ batches: [], trainees: [], activeBatchId: '', dataLoaded: false }),
 
       setActiveBatch: (id) => set({ activeBatchId: id }),
 
