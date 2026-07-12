@@ -19,7 +19,9 @@ CREATE TABLE profiles (
 -- SECURITY DEFINER so RLS policies can check the caller's role without
 -- recursively hitting the RLS policy on profiles itself.
 CREATE OR REPLACE FUNCTION current_role_is(roles user_role[])
-RETURNS BOOLEAN LANGUAGE SQL SECURITY DEFINER STABLE AS $$
+RETURNS BOOLEAN LANGUAGE SQL SECURITY DEFINER STABLE
+SET search_path = public, pg_temp
+AS $$
   SELECT EXISTS (
     SELECT 1 FROM profiles
     WHERE id = auth.uid() AND active AND role = ANY(roles)
@@ -275,10 +277,10 @@ ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
 CREATE POLICY trades_select ON trades FOR SELECT
   USING (current_role_is(ARRAY['trainer','case_worker','finance_officer','director','admin']::user_role[]));
 CREATE POLICY trades_insert ON trades FOR INSERT
-  WITH CHECK (current_role_is(ARRAY['admin']::user_role[]));
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','director','admin']::user_role[]));
 CREATE POLICY trades_update ON trades FOR UPDATE
-  USING (current_role_is(ARRAY['admin']::user_role[]))
-  WITH CHECK (current_role_is(ARRAY['admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','director','admin']::user_role[]));
 CREATE POLICY trades_delete ON trades FOR DELETE
   USING (current_role_is(ARRAY['admin']::user_role[]));
 
