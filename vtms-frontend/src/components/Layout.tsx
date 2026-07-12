@@ -23,11 +23,11 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exac
   { to: '/alumni', icon: UserCheck, label: 'Alumni', domain: 'alumni' },
 ];
 
-const MOBILE_NAV = [
+const MOBILE_NAV: { to: string; icon: typeof LayoutDashboard; label: string; domain?: Domain }[] = [
   { to: '/', icon: LayoutDashboard, label: 'Home' },
-  { to: '/trainees', icon: Users, label: 'Trainees' },
-  { to: '/attendance', icon: ClipboardList, label: 'Log' },
-  { to: '/case-management', icon: Heart, label: 'Care' },
+  { to: '/trainees', icon: Users, label: 'Trainees', domain: 'trainees' },
+  { to: '/attendance', icon: ClipboardList, label: 'Log', domain: 'attendance' },
+  { to: '/case-management', icon: Heart, label: 'Care', domain: 'case_notes' },
   { to: '/more', icon: Menu, label: 'More' },
 ];
 
@@ -44,6 +44,10 @@ export default function Layout() {
   const navItems = profile?.role === 'admin'
     ? [...visibleNavItems, { to: '/admin/staff', icon: ShieldCheck, label: 'Staff' }]
     : visibleNavItems;
+
+  const visibleMobileNav = MOBILE_NAV.filter(
+    (item) => !item.domain || (profile && canView(profile.role, item.domain))
+  );
 
   if (!dataLoaded) {
     return (
@@ -173,7 +177,7 @@ export default function Layout() {
 
       {/* Mobile bottom nav */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around items-center h-16 z-20 px-2">
-        {MOBILE_NAV.map(({ to, icon: Icon, label }) => (
+        {visibleMobileNav.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
