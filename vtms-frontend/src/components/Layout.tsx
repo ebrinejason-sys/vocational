@@ -1,23 +1,26 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Package,
-  DollarSign, Heart, GraduationCap, UserCheck, Menu, X, Layers
+  DollarSign, Heart, GraduationCap, UserCheck, Menu, X, Layers,
+  LogOut, ShieldCheck, Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useStore } from '../store';
+import { useAuth } from '../contexts/AuthContext';
+import { canView, type Domain } from '../lib/permissions';
 
-const NAV_ITEMS = [
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; domain?: Domain }[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-  { to: '/batches', icon: Layers, label: 'Batches' },
-  { to: '/trainees', icon: Users, label: 'Trainees' },
-  { to: '/attendance', icon: ClipboardList, label: 'Attendance' },
-  { to: '/competency', icon: BookOpen, label: 'Competency' },
-  { to: '/case-management', icon: Heart, label: 'Case Mgmt' },
-  { to: '/inventory', icon: Package, label: 'Inventory' },
-  { to: '/financials', icon: DollarSign, label: 'Financials' },
-  { to: '/graduation', icon: GraduationCap, label: 'Graduation' },
-  { to: '/alumni', icon: UserCheck, label: 'Alumni' },
+  { to: '/batches', icon: Layers, label: 'Batches', domain: 'batches' },
+  { to: '/trainees', icon: Users, label: 'Trainees', domain: 'trainees' },
+  { to: '/attendance', icon: ClipboardList, label: 'Attendance', domain: 'attendance' },
+  { to: '/competency', icon: BookOpen, label: 'Competency', domain: 'competency' },
+  { to: '/case-management', icon: Heart, label: 'Case Mgmt', domain: 'case_notes' },
+  { to: '/inventory', icon: Package, label: 'Inventory', domain: 'inventory' },
+  { to: '/financials', icon: DollarSign, label: 'Financials', domain: 'financials' },
+  { to: '/graduation', icon: GraduationCap, label: 'Graduation', domain: 'graduation' },
+  { to: '/alumni', icon: UserCheck, label: 'Alumni', domain: 'alumni' },
 ];
 
 const MOBILE_NAV = [
@@ -31,8 +34,24 @@ const MOBILE_NAV = [
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-  const { batches, activeBatchId, setActiveBatch } = useStore();
+  const { batches, activeBatchId, setActiveBatch, dataLoaded } = useStore();
+  const { profile, signOut } = useAuth();
   const activeBatch = batches.find((b) => b.id === activeBatchId);
+
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => !item.domain || (profile && canView(profile.role, item.domain))
+  );
+  const navItems = profile?.role === 'admin'
+    ? [...visibleNavItems, { to: '/admin/staff', icon: ShieldCheck, label: 'Staff' }]
+    : visibleNavItems;
+
+  if (!dataLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -79,7 +98,7 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map(({ to, icon: Icon, label, exact }) => (
+          {navItems.map(({ to, icon: Icon, label, exact }) => (
             <NavLink
               key={to}
               to={to}
@@ -100,11 +119,20 @@ export default function Layout() {
 
         <div className="p-4 border-t border-gray-100">
           <div className="flex items-center space-x-2 px-2">
-            <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700">JN</div>
-            <div>
-              <p className="text-xs font-semibold text-gray-800">James Nkurunziza</p>
-              <p className="text-[10px] text-gray-400">Programme Manager</p>
+            <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700">
+              {profile ? profile.fullName.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() : ''}
             </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-gray-800 truncate">{profile?.fullName}</p>
+              <p className="text-[10px] text-gray-400 capitalize">{profile?.role.replace('_', ' ')}</p>
+            </div>
+            <button
+              onClick={() => signOut()}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700"
+              aria-label="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </aside>
