@@ -5,7 +5,7 @@ import {
   Phone, MapPin, AlertCircle, CheckCircle,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, generateId, getVulnerabilityLabel, formatDate } from '../lib/utils';
+import { cn, getVulnerabilityLabel, formatDate } from '../lib/utils';
 import type { Trainee, VulnerabilityAssessment, TraineeStatus } from '../types';
 
 // ── Vulnerability score computation ──────────────────────────────────────────
@@ -120,6 +120,7 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
   const { batches, activeBatchId, addTrainee } = useStore();
   const [form, setForm] = useState<FormData>(defaultForm(activeBatchId));
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const assessment: VulnerabilityAssessment = {
     housingStatus: form.housingStatus,
@@ -137,28 +138,31 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const newTrainee: Trainee = {
-      id: generateId(),
-      batchId: form.batchId,
-      firstName: form.firstName.trim(),
-      lastName: form.lastName.trim(),
-      dateOfBirth: form.dateOfBirth,
-      gender: form.gender,
-      phone: form.phone.trim(),
-      address: form.address.trim(),
-      emergencyContact: form.emergencyContact.trim(),
-      emergencyPhone: form.emergencyPhone.trim(),
-      mobilizationSource: form.mobilizationSource.trim(),
-      vulnerabilityScore: previewScore,
-      vulnerabilityAssessment: assessment,
-      status: 'enrolled',
-      graduationDate: null,
-      photo: null,
-    };
-    addTrainee(newTrainee);
-    setSubmitted(true);
+    setSubmitError(null);
+    try {
+      await addTrainee({
+        batchId: form.batchId,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        dateOfBirth: form.dateOfBirth,
+        gender: form.gender,
+        phone: form.phone.trim(),
+        address: form.address.trim(),
+        emergencyContact: form.emergencyContact.trim(),
+        emergencyPhone: form.emergencyPhone.trim(),
+        mobilizationSource: form.mobilizationSource.trim(),
+        vulnerabilityScore: previewScore,
+        vulnerabilityAssessment: assessment,
+        status: 'enrolled',
+        graduationDate: null,
+        photo: null,
+      });
+      setSubmitted(true);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to register trainee. Check your permissions.');
+    }
   }
 
   if (submitted) {
@@ -331,6 +335,10 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </div>
+
+      {submitError && (
+        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{submitError}</p>
+      )}
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-3">

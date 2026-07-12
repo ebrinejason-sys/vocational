@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { Role } from '../lib/permissions';
+import { useStore } from '../store';
 
 export interface Profile {
   id: string;
@@ -39,13 +40,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true;
     let latestRequestId = 0;
 
-    async function applySession(nextSession: Session | null) {
+    async function applySession(nextSession: Session | null, event?: AuthChangeEvent) {
       const requestId = ++latestRequestId;
       try {
         const nextProfile = nextSession ? await fetchProfile(nextSession.user.id) : null;
         if (!mounted || requestId !== latestRequestId) return;
         setSession(nextSession);
         setProfile(nextProfile);
+        // Skip re-fetching batches/trainees on silent background token
+        // refreshes — session/profile state still stays in sync above,
+        // this only avoids burning Supabase API quota on data that
+        // hasn't changed. Also skip INITIAL_SESSION: onAuthStateChange
+        // fires that on attach in parallel with our explicit
+        // getSession() call below for the same session, so honoring it
+        // here would double-fetch on every page load. The initial
+        // getSession() call (no event) and genuine sign-ins still fetch.
+        if (nextProfile && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION') {
+          useStore.getState().fetchInitialData().catch((err) => console.error('Failed to load initial data', err));
+        }
       } catch (err) {
         if (!mounted || requestId !== latestRequestId) return;
         console.error('Failed to load auth session', err);
@@ -64,8 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      applySession(session);
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      applySession(session, event);
     });
 
     return () => {

@@ -5,8 +5,8 @@ import {
   GraduationCap, ChevronRight, CheckCircle, Clock, Archive,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, formatCurrency, formatDate, generateId } from '../lib/utils';
-import type { TradeType, Batch } from '../types';
+import { cn, formatCurrency, formatDate } from '../lib/utils';
+import type { TradeType } from '../types';
 
 const TRADE_OPTIONS: TradeType[] = ['Carpentry', 'Tailoring', 'Masonry', 'Electricity', 'Entrepreneurship'];
 
@@ -65,27 +65,28 @@ export default function Batches() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
-    const newBatch: Batch = {
-      id: generateId(),
-      name: form.name.trim(),
-      trade: form.trade,
-      startDate: form.startDate,
-      endDate: null,
-      status: 'planned',
-      budgetAllocated: Number(form.budgetAllocated),
-      targetEnrollment: Number(form.targetEnrollment),
-      trainerName: form.trainerName.trim(),
-      description: form.description.trim(),
-    };
-
-    addBatch(newBatch);
-    setForm(EMPTY_FORM);
-    setErrors({});
-    setShowForm(false);
+    try {
+      await addBatch({
+        name: form.name.trim(),
+        trade: form.trade,
+        startDate: form.startDate,
+        endDate: null,
+        status: 'planned',
+        budgetAllocated: Number(form.budgetAllocated),
+        targetEnrollment: Number(form.targetEnrollment),
+        trainerName: form.trainerName.trim(),
+        description: form.description.trim(),
+      });
+      setForm(EMPTY_FORM);
+      setErrors({});
+      setShowForm(false);
+    } catch (err) {
+      setErrors({ name: err instanceof Error ? err.message : 'Failed to create batch. Check your permissions.' });
+    }
   };
 
   const getBatchStats = (batchId: string) => {
