@@ -1483,7 +1483,7 @@ In `vtms-frontend/src/contexts/AuthContext.tsx`, add the import:
 import { useStore } from '../store';
 ```
 
-And in both places `setProfile(session ? await fetchProfile(session.user.id) : null);` appears (inside `getSession().then(...)` and inside `onAuthStateChange`), change to fetch the store data once a profile loads successfully:
+In the `getSession().then(...)` block, replace `setProfile(session ? await fetchProfile(session.user.id) : null);` with:
 
 ```typescript
       const nextProfile = session ? await fetchProfile(session.user.id) : null;
@@ -1493,7 +1493,15 @@ And in both places `setProfile(session ? await fetchProfile(session.user.id) : n
       }
 ```
 
-(Replace the single-line `setProfile(...)` call at both call sites with this 4-line block.)
+In the `onAuthStateChange` callback, rename its first parameter from `_event` to `event` and replace the same `setProfile(...)` line with the event-gated version — `onAuthStateChange` fires on `TOKEN_REFRESHED` too (with a non-null session), and refetching every batch/trainee row on every silent background token refresh would waste API calls against a Supabase project that already hit its free-tier quota once:
+
+```typescript
+      const nextProfile = session ? await fetchProfile(session.user.id) : null;
+      setProfile(nextProfile);
+      if (nextProfile && event !== 'TOKEN_REFRESHED') {
+        useStore.getState().fetchInitialData().catch((err) => console.error('Failed to load initial data', err));
+      }
+```
 
 - [ ] **Step 3: Update `Batches.tsx`'s submit handler**
 
