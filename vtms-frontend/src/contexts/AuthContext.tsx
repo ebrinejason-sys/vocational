@@ -37,18 +37,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let latestRequestId = 0;
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!mounted) return;
-      setSession(session);
-      setProfile(session ? await fetchProfile(session.user.id) : null);
-      setLoading(false);
-    });
+    async function applySession(nextSession: Session | null) {
+      const requestId = ++latestRequestId;
+      try {
+        const nextProfile = nextSession ? await fetchProfile(nextSession.user.id) : null;
+        if (!mounted || requestId !== latestRequestId) return;
+        setSession(nextSession);
+        setProfile(nextProfile);
+      } catch (err) {
+        if (!mounted || requestId !== latestRequestId) return;
+        console.error('Failed to load auth session', err);
+        setSession(null);
+        setProfile(null);
+      } finally {
+        if (mounted && requestId === latestRequestId) setLoading(false);
+      }
+    }
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!mounted) return;
-      setSession(session);
-      setProfile(session ? await fetchProfile(session.user.id) : null);
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => applySession(session))
+      .catch((err) => {
+        if (!mounted) return;
+        console.error('Failed to get session', err);
+        setLoading(false);
+      });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      applySession(session);
     });
 
     return () => {
