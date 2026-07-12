@@ -60,6 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   if (insertError) {
+    // Compensate: the auth user was created but the profile insert failed —
+    // remove it so a retry for the same email isn't permanently blocked by
+    // Supabase Auth already having a user for it.
+    await admin.auth.admin.deleteUser(invited.user.id).catch(() => {});
     res.status(500).json({ error: insertError.message });
     return;
   }
