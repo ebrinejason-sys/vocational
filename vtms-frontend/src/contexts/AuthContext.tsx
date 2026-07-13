@@ -52,15 +52,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // user signing in on the same tab never sees stale, previously
           // fetched session-scoped data before fetchInitialData() resolves.
           useStore.getState().resetSessionData();
-        } else if (nextProfile && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION') {
+        } else if (nextProfile && event !== 'TOKEN_REFRESHED') {
           // Skip re-fetching batches/trainees on silent background token
           // refreshes — session/profile state still stays in sync above,
           // this only avoids burning Supabase API quota on data that
-          // hasn't changed. Also skip INITIAL_SESSION: onAuthStateChange
-          // fires that on attach in parallel with our explicit
-          // getSession() call below for the same session, so honoring it
-          // here would double-fetch on every page load. The initial
-          // getSession() call (no event) and genuine sign-ins still fetch.
+          // hasn't changed. onAuthStateChange is the sole source of the
+          // initial session (no separate getSession() call below), so its
+          // INITIAL_SESSION event is the one and only place the first
+          // load's fetch happens; excluding it here would mean it never
+          // happens at all.
           useStore.getState().fetchInitialData().catch((err) => console.error('Failed to load initial data', err));
         }
       } catch (err) {
@@ -73,14 +73,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => applySession(session))
-      .catch((err) => {
-        if (!mounted) return;
-        console.error('Failed to get session', err);
-        setLoading(false);
-      });
-
+    // onAuthStateChange fires an INITIAL_SESSION event immediately on
+    // subscription with the current session (Supabase's documented
+    // contract), so it alone covers the initial load — a separate
+    // getSession() call here would race it: whichever call's requestId
+    // ends up "latest" wins, and if that happened to be the one skipping
+    // fetchInitialData (see above), the app would never load any data.
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       applySession(session, event);
     });
