@@ -2,12 +2,13 @@ import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import type { Role } from '../lib/permissions';
+import Preloader from './Preloader';
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { session, profile, loading } = useAuth();
   const location = useLocation();
 
-  if (loading) return null;
+  if (loading) return <Preloader />;
   if (!session || (profile !== null && !profile.active)) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }

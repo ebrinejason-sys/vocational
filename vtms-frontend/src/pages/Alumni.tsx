@@ -35,7 +35,7 @@ const KIT_STATUS_LABELS: Record<StarterKitStatus, string> = {
 
 const CHART_COLORS: Record<EmploymentStatus, string> = {
   employed:       '#16a34a',
-  self_employed:  '#0284c7',
+  self_employed:  '#0d9488',
   unemployed:     '#dc2626',
   further_studies:'#9333ea',
 };

@@ -335,7 +335,7 @@ export default function Dashboard() {
                 formatter={(value: unknown) => [`${value}%`, 'Attendance']}
                 contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }}
               />
-              <Bar dataKey="attendance" fill="#0284c7" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="attendance" fill="#0d9488" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -367,8 +367,8 @@ export default function Dashboard() {
                 contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar yAxisId="left" dataKey="enrolled" name="Target Enrolled" fill="#bae6fd" radius={[4, 4, 0, 0]} />
-              <Bar yAxisId="left" dataKey="graduated" name="Graduated" fill="#0284c7" radius={[4, 4, 0, 0]} />
+              <Bar yAxisId="left" dataKey="enrolled" name="Target Enrolled" fill="#99f6e4" radius={[4, 4, 0, 0]} />
+              <Bar yAxisId="left" dataKey="graduated" name="Graduated" fill="#0d9488" radius={[4, 4, 0, 0]} />
               <Line
                 yAxisId="right"
                 type="monotone"

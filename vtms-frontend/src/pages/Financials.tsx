@@ -12,8 +12,8 @@ import { formatCurrency, formatDate, generateId, today, cn } from '../lib/utils'
 import type { FinancialTransaction, TransactionType } from '../types';
 
 const EXPENSE_COLORS = [
-  '#0284c7', '#0ea5e9', '#38bdf8', '#7dd3fc', '#bae6fd',
-  '#0369a1', '#075985', '#0c4a6e', '#60a5fa', '#93c5fd',
+  '#0d9488', '#14b8a6', '#2dd4bf', '#5eead4', '#99f6e4',
+  '#0f766e', '#115e59', '#134e4a', '#0891b2', '#22d3ee',
 ];
 
 const INCOME_CATEGORIES = ['Donor Grant', 'Production Sales', 'Church Contribution', 'Government Grant', 'Other'];

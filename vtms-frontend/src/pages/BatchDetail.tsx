@@ -295,7 +295,7 @@ export default function BatchDetail() {
                   formatter={(value: unknown) => [formatCurrency(value as number), 'Spent']}
                   contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 11 }}
                 />
-                <Bar dataKey="amount" fill="#0284c7" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="amount" fill="#0d9488" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}

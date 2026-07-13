@@ -1,3 +1,140 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/*  Base                                                              */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --app-bg: #f4f6f8;
+  --app-ink: #0f172a;
+}
+
+.dark {
+  --app-bg: #0b1220;
+  --app-ink: #e2e8f0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: '"Plus Jakarta Sans"', ui-sans-serif, system-ui, sans-serif;
+  background-color: var(--app-bg);
+  color: var(--app-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.font-display {
+  font-family: 'Fraunces', ui-serif, Georgia, serif;
+  font-optical-sizing: auto;
+}
+
+/* Consistent, subtle focus ring for keyboard users across the app. */
+:focus-visible {
+  outline: 2px solid #14b8a6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Themed scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.dark * {
+  scrollbar-color: #334155 transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background-color: #334155;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Dark-mode retrofit                                               */
+/*                                                                    */
+/*  The feature pages were authored with light-only utilities        */
+/*  (bg-white, text-gray-*, border-gray-*). Rather than rewrite every */
+/*  className on every page, remap those exact utilities under the    */
+/*  .dark scope. Higher specificity (.dark .x) + later source order   */
+/*  than the generated utility means these win cleanly in dark mode.  */
+/* ------------------------------------------------------------------ */
+
+/* Surfaces */
+.dark .bg-white { background-color: #111c2e; }
+.dark .bg-gray-50 { background-color: #0f1a2b; }
+.dark .bg-gray-100 { background-color: #1c2a40; }
+.dark .bg-primary-50 { background-color: rgba(13, 148, 136, 0.14); }
+
+/* Text */
+.dark .text-gray-900 { color: #f1f5f9; }
+.dark .text-gray-800 { color: #e2e8f0; }
+.dark .text-gray-700 { color: #cbd5e1; }
+.dark .text-gray-600 { color: #aab8c9; }
+.dark .text-gray-500 { color: #94a3b8; }
+.dark .text-gray-400 { color: #7688a0; }
+.dark .text-gray-300 { color: #5c6b82; }
+.dark .text-primary-800 { color: #5eead4; }
+.dark .text-primary-700 { color: #2dd4bf; }
+
+/* Borders */
+.dark .border-gray-50 { border-color: #172234; }
+.dark .border-gray-100 { border-color: #1e2b40; }
+.dark .border-gray-200 { border-color: #2b3b54; }
+.dark .border-primary-100 { border-color: rgba(13, 148, 136, 0.35); }
+
+/* Divide */
+.dark .divide-gray-50 > :not([hidden]) ~ :not([hidden]) { border-color: #172234; }
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1e2b40; }
+
+/* Hover states */
+.dark .hover\:bg-gray-50:hover { background-color: #17233a; }
+.dark .hover\:bg-gray-100:hover { background-color: #1c2a40; }
+.dark .hover\:bg-gray-200:hover { background-color: #24344c; }
+.dark .hover\:bg-primary-50:hover { background-color: rgba(13, 148, 136, 0.16); }
+.dark .hover\:bg-sky-50:hover { background-color: rgba(13, 148, 136, 0.12); }
+.dark .hover\:text-gray-900:hover { color: #f1f5f9; }
+.dark .hover\:text-gray-800:hover { color: #e2e8f0; }
+.dark .hover\:text-gray-700:hover { color: #cbd5e1; }
+.dark .hover\:border-primary-200:hover { border-color: rgba(13, 148, 136, 0.5); }
+
+/* Inputs */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #0f1a2b;
+  border-color: #2b3b54;
+  color: #e2e8f0;
+}
+.dark ::placeholder { color: #64748b; }
+.dark select option { background-color: #111c2e; color: #e2e8f0; }
+
+/* Soften elevation on dark */
+.dark .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.5); }
+.dark .shadow,
+.dark .shadow-md { box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.55); }
+.dark .shadow-lg { box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.6); }

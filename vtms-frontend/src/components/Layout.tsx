@@ -3,12 +3,15 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Package,
   DollarSign, Heart, GraduationCap, UserCheck, Menu, X, Layers,
-  LogOut, ShieldCheck, Loader2,
+  LogOut, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canView, type Domain } from '../lib/permissions';
+import Brand from './Brand';
+import ThemeToggle from './ThemeToggle';
+import Preloader from './Preloader';
 
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; domain?: Domain }[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
@@ -49,19 +52,21 @@ export default function Layout() {
     (item) => !item.domain || (profile && canView(profile.role, item.domain))
   );
 
-  if (!dataLoaded) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
-      </div>
-    );
-  }
+  const currentLabel = NAV_ITEMS.find((n) =>
+    n.exact ? location.pathname === n.to : location.pathname.startsWith(n.to)
+  )?.label ?? 'Dashboard';
+
+  const initials = profile
+    ? profile.fullName.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
+    : '';
+
+  if (!dataLoaded) return <Preloader />;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen flex">
       {/* Overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
@@ -70,34 +75,37 @@ export default function Layout() {
         'lg:translate-x-0',
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       )}>
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">Agape Skills Centre</p>
-            <h1 className="text-base font-bold text-primary-700 leading-tight">VTMS</h1>
-          </div>
-          <button className="lg:hidden p-1" onClick={() => setSidebarOpen(false)}>
+        <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-2">
+          <Brand size="sm" className="min-w-0" />
+          <button className="lg:hidden p-1 shrink-0" onClick={() => setSidebarOpen(false)} aria-label="Close menu">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
         {/* Active batch selector */}
         <div className="px-4 py-3 border-b border-gray-100 bg-primary-50">
-          <p className="text-[10px] text-primary-600 uppercase font-semibold mb-1">Active Batch</p>
-          <select
-            value={activeBatchId}
-            onChange={(e) => setActiveBatch(e.target.value)}
-            className="w-full text-xs font-semibold text-primary-800 bg-transparent border-0 outline-none cursor-pointer"
-          >
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
-          {activeBatch && (
-            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold mt-1 inline-block',
-              activeBatch.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-            )}>
-              {activeBatch.status.toUpperCase()}
-            </span>
+          <p className="text-[10px] text-primary-600 uppercase tracking-wider font-semibold mb-1">Active Batch</p>
+          {batches.length === 0 ? (
+            <p className="text-xs text-gray-500">No batches yet</p>
+          ) : (
+            <>
+              <select
+                value={activeBatchId}
+                onChange={(e) => setActiveBatch(e.target.value)}
+                className="w-full text-xs font-semibold text-primary-800 bg-transparent border-0 outline-none cursor-pointer"
+              >
+                {batches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              {activeBatch && (
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold mt-1 inline-block',
+                  activeBatch.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                )}>
+                  {activeBatch.status.toUpperCase()}
+                </span>
+              )}
+            </>
           )}
         </div>
 
@@ -109,22 +117,30 @@ export default function Layout() {
               end={exact}
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) => cn(
-                'flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
                 isActive
-                  ? 'bg-primary-50 text-primary-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  ? 'bg-primary-50 text-primary-700 font-semibold'
+                  : 'text-gray-600 font-medium hover:bg-gray-100 hover:text-gray-900'
               )}
             >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span>{label}</span>
+              {({ isActive }) => (
+                <>
+                  <span className={cn(
+                    'h-4 w-0.5 rounded-full -ml-1 transition-colors',
+                    isActive ? 'bg-primary-500' : 'bg-transparent'
+                  )} />
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span>{label}</span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-100">
-          <div className="flex items-center space-x-2 px-2">
-            <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700">
-              {profile ? profile.fullName.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() : ''}
+        <div className="p-3 border-t border-gray-100">
+          <div className="flex items-center gap-2 px-2 py-1">
+            <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700 shrink-0">
+              {initials}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-gray-800 truncate">{profile?.fullName}</p>
@@ -132,8 +148,9 @@ export default function Layout() {
             </div>
             <button
               onClick={() => signOut()}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700"
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
               aria-label="Sign out"
+              title="Sign out"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -144,39 +161,34 @@ export default function Layout() {
       {/* Main */}
       <div className="flex-1 flex flex-col lg:pl-64 min-w-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 bg-white border-b border-gray-100 h-14 flex items-center px-4 gap-3">
+        <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-gray-100 h-14 flex items-center px-4 gap-3">
           <button
-            className="lg:hidden p-1.5 rounded-lg hover:bg-gray-100"
+            className="lg:hidden p-1.5 rounded-lg hover:bg-gray-100 text-gray-600"
             onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu"
           >
-            <Menu className="w-5 h-5 text-gray-600" />
+            <Menu className="w-5 h-5" />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-800 truncate">
-              {NAV_ITEMS.find((n) =>
-                n.exact ? location.pathname === n.to : location.pathname.startsWith(n.to)
-              )?.label ?? 'VTMS'}
-            </p>
-            <p className="text-[11px] text-gray-400 truncate hidden sm:block">
-              {activeBatch?.name} · {activeBatch?.trade}
-            </p>
+            <h1 className="font-display text-base font-semibold text-gray-900 truncate leading-tight">
+              {currentLabel}
+            </h1>
+            {activeBatch && (
+              <p className="text-[11px] text-gray-400 truncate hidden sm:block">
+                {activeBatch.name} · {activeBatch.trade}
+              </p>
+            )}
           </div>
-          <span className={cn(
-            'hidden sm:flex items-center space-x-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full',
-            'bg-green-100 text-green-700'
-          )}>
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-            <span>Online</span>
-          </span>
+          <ThemeToggle />
         </header>
 
-        <main className="flex-1 p-4 lg:p-6 pb-24 lg:pb-6">
+        <main className="flex-1 p-4 lg:p-6 pb-24 lg:pb-6 animate-fade-in">
           <Outlet />
         </main>
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around items-center h-16 z-20 px-2">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-gray-100 flex justify-around items-center h-16 z-20 px-2">
         {visibleMobileNav.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
