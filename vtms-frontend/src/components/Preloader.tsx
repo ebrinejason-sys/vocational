@@ -1,4 +1,6 @@
-import logo from '../assets/scm-logo.jpg';
+import logoLight from '../assets/scm-logo-light.jpg';
+import logoDark from '../assets/scm-logo-dark.jpg';
+import { useTheme } from '../lib/theme';
 
 /**
  * Branded full-screen loader shown while the session and first data load
@@ -6,12 +8,13 @@ import logo from '../assets/scm-logo.jpg';
  * deliberate load moment, kept calm and on-brand.
  */
 export default function Preloader({ label = 'Preparing your workspace…' }: { label?: string }) {
+  const { theme } = useTheme();
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[var(--app-bg)] px-6 text-center">
       <div className="relative animate-logo-in">
         <span className="absolute inset-0 rounded-2xl bg-primary-500/30 animate-ring-pulse" aria-hidden="true" />
         <img
-          src={logo}
+          src={theme === 'dark' ? logoDark : logoLight}
           alt="Street Children Ministry"
           className="relative h-20 w-20 rounded-2xl object-cover shadow-lg ring-1 ring-black/10"
         />

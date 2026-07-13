@@ -1,4 +1,6 @@
-import logo from '../assets/scm-logo.jpg';
+import logoLight from '../assets/scm-logo-light.jpg';
+import logoDark from '../assets/scm-logo-dark.jpg';
+import { useTheme } from '../lib/theme';
 import { cn } from '../lib/utils';
 
 const SIZES = {
@@ -16,15 +18,15 @@ interface BrandProps {
 
 /**
  * Street Children Ministry brand lockup — the crest in a rounded badge beside
- * the CTVET / VST wordmark. Reused in the sidebar, login card, and preloader
- * so the identity reads the same everywhere.
+ * the CTVET / VST wordmark. Light crest on light UI, black-plate crest in dark.
  */
 export default function Brand({ size = 'md', markOnly = false, className }: BrandProps) {
+  const { theme } = useTheme();
   const s = SIZES[size];
   return (
     <div className={cn('flex items-center gap-3', className)}>
       <img
-        src={logo}
+        src={theme === 'dark' ? logoDark : logoLight}
         alt="Street Children Ministry crest"
         className={cn('shrink-0 rounded-xl object-cover ring-1 ring-black/10 shadow-sm', s.box)}
       />
