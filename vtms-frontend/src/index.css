@@ -138,3 +138,61 @@ body {
 .dark .shadow,
 .dark .shadow-md { box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.55); }
 .dark .shadow-lg { box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.6); }
+
+/* ------------------------------------------------------------------ */
+/*  Dark-mode retrofit, pass 2                                        */
+/*  Semantic badge/status colors (bg-*-50/100 + text-*-600/700 pairs) */
+/*  and translucent surfaces the first pass missed.                   */
+/* ------------------------------------------------------------------ */
+
+/* Translucent chrome (header, mobile nav) */
+.dark .bg-white\/90 { background-color: rgba(17, 28, 46, 0.92); }
+.dark .bg-white\/95 { background-color: rgba(17, 28, 46, 0.96); }
+
+/* Primary tints */
+.dark .bg-primary-100 { background-color: rgba(13, 148, 136, 0.22); }
+.dark .text-primary-600 { color: #2dd4bf; }
+.dark .border-primary-200 { border-color: rgba(13, 148, 136, 0.4); }
+.dark .border-primary-300 { border-color: rgba(13, 148, 136, 0.55); }
+
+/* Green (success / present / graduated) */
+.dark .bg-green-50, .dark .bg-green-100 { background-color: rgba(34, 197, 94, 0.16); }
+.dark .text-green-700, .dark .text-green-600 { color: #4ade80; }
+.dark .text-green-500 { color: #4ade80; }
+.dark .border-green-200 { border-color: rgba(34, 197, 94, 0.35); }
+
+/* Red (critical / absent / error) */
+.dark .bg-red-50, .dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.16); }
+.dark .text-red-700, .dark .text-red-600, .dark .text-red-500 { color: #f87171; }
+.dark .text-red-400 { color: #f87171; }
+.dark .border-red-100, .dark .border-red-200 { border-color: rgba(239, 68, 68, 0.35); }
+
+/* Yellow / amber / orange (warnings, pending) */
+.dark .bg-yellow-50, .dark .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.16); }
+.dark .text-yellow-700, .dark .text-yellow-600 { color: #facc15; }
+.dark .bg-amber-50, .dark .bg-amber-100 { background-color: rgba(245, 158, 11, 0.16); }
+.dark .text-amber-700, .dark .text-amber-600 { color: #fbbf24; }
+.dark .bg-orange-50, .dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.16); }
+.dark .text-orange-700, .dark .text-orange-600 { color: #fb923c; }
+.dark .border-orange-200 { border-color: rgba(249, 115, 22, 0.35); }
+
+/* Blue / sky (info) */
+.dark .bg-blue-50, .dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.16); }
+.dark .text-blue-700, .dark .text-blue-600 { color: #60a5fa; }
+.dark .bg-sky-50, .dark .bg-sky-100 { background-color: rgba(14, 165, 233, 0.16); }
+.dark .text-sky-700, .dark .text-sky-600 { color: #38bdf8; }
+.dark .border-sky-200 { border-color: rgba(14, 165, 233, 0.35); }
+
+/* Purple / pink / stone (trade + category badges) */
+.dark .bg-purple-50, .dark .bg-purple-100 { background-color: rgba(168, 85, 247, 0.18); }
+.dark .text-purple-700 { color: #c084fc; }
+.dark .bg-pink-50, .dark .bg-pink-100 { background-color: rgba(236, 72, 153, 0.18); }
+.dark .text-pink-700 { color: #f472b6; }
+.dark .bg-stone-100 { background-color: rgba(120, 113, 108, 0.25); }
+.dark .text-stone-700 { color: #d6d3d1; }
+
+/* Remaining light-gray text tokens used for placeholders/dashes */
+.dark .text-gray-200 { color: #3d4d64; }
+
+/* Progress-track backgrounds inside cards */
+.dark .bg-gray-200 { background-color: #24344c; }

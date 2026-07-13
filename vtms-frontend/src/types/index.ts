@@ -1,4 +1,5 @@
-export type TradeType = 'Carpentry' | 'Tailoring' | 'Masonry' | 'Electricity' | 'Entrepreneurship';
+// The four trades SCM's CTVET programme actually runs (per the project charter).
+export type TradeType = 'Carpentry' | 'Tailoring' | 'Masonry' | 'Electricity';
 export type BatchStatus = 'planned' | 'active' | 'completed' | 'archived';
 export type TraineeStatus = 'prospect' | 'enrolled' | 'graduated' | 'dropped' | 'alumni';
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';

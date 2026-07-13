@@ -241,7 +241,9 @@ export const useStore = create<VTMSState>()(
     }),
     {
       name: 'vtms-store',
-      version: 2,
+      // v3: fictional demo data removed — bumping the version discards any
+      // previously persisted local copy of it on returning browsers.
+      version: 3,
       // batches/trainees are now server-sourced (per-user, RLS-scoped) —
       // caching them in localStorage risks showing a previously signed-in
       // user's data to whoever signs in next on the same browser.

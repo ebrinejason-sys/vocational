@@ -17,7 +17,6 @@ const TRADE_COLORS: Record<string, string> = {
   Tailoring: 'bg-pink-100 text-pink-700',
   Masonry: 'bg-stone-100 text-stone-700',
   Electricity: 'bg-yellow-100 text-yellow-700',
-  Entrepreneurship: 'bg-purple-100 text-purple-700',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -273,7 +272,7 @@ export default function BatchDetail() {
           </div>
 
           {expenseByCategory.length > 0 && (
-            <ResponsiveContainer width="100%" height={160}>
+            <ResponsiveContainer width="100%" height={160} minWidth={0}>
               <BarChart data={expenseByCategory} layout="vertical" barCategoryGap="25%">
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                 <XAxis

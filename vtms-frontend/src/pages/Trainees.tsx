@@ -5,7 +5,9 @@ import {
   Phone, MapPin, AlertCircle, CheckCircle,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, getVulnerabilityLabel, formatDate } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
+import { canEdit } from '../lib/permissions';
+import { cn, getVulnerabilityLabel, formatDate, friendlyError } from '../lib/utils';
 import type { Trainee, VulnerabilityAssessment, TraineeStatus } from '../types';
 
 // ── Vulnerability score computation ──────────────────────────────────────────
@@ -161,7 +163,7 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
       });
       setSubmitted(true);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Failed to register trainee. Check your permissions.');
+      setSubmitError(friendlyError(err, 'Failed to register trainee.'));
     }
   }
 
@@ -211,7 +213,7 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className={labelCls}>Last Name *</label>
-            <input required className={inputCls} value={form.lastName} onChange={(e) => set('lastName', e.target.value)} placeholder="e.g. Nkurunziza" />
+            <input required className={inputCls} value={form.lastName} onChange={(e) => set('lastName', e.target.value)} placeholder="e.g. Deng" />
           </div>
           <div>
             <label className={labelCls}>Date of Birth *</label>
@@ -359,6 +361,8 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
 export default function Trainees() {
   const navigate = useNavigate();
   const { trainees, batches } = useStore();
+  const { profile } = useAuth();
+  const mayEdit = profile ? canEdit(profile.role, 'trainees') : false;
 
   const [search, setSearch] = useState('');
   const [filterBatch, setFilterBatch] = useState('all');
@@ -391,6 +395,7 @@ export default function Trainees() {
           <h1 className="text-2xl font-bold text-gray-900">Trainees</h1>
           <p className="text-sm text-gray-500 mt-0.5">{trainees.length} total across {batches.length} batches</p>
         </div>
+        {mayEdit && (
         <button
           onClick={() => setShowForm((v) => !v)}
           className={cn(
@@ -403,6 +408,7 @@ export default function Trainees() {
           {showForm ? <X className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
           {showForm ? 'Cancel' : 'Register New Trainee'}
         </button>
+        )}
       </div>
 
       {/* Inline registration form */}

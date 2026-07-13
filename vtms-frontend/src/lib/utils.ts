@@ -5,8 +5,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// SCM's CTVET project reports in USD (donor: Word and Deed).
 export function formatCurrency(amount: number): string {
-  return `UGX ${amount.toLocaleString()}`;
+  return `$${amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 }
 
 export function formatDate(dateStr: string): string {
@@ -31,4 +32,23 @@ export function getAttendanceRate(present: number, total: number): number {
 
 export function today(): string {
   return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Turn raw Supabase/Postgres errors into copy a field officer can act on,
+ * instead of leaking internals like "new row violates row-level security
+ * policy for table trainees".
+ */
+export function friendlyError(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : '';
+  if (/row-level security|permission denied|policy/i.test(message)) {
+    return 'Your role doesn’t have permission for this action.';
+  }
+  if (/Failed to fetch|NetworkError|network/i.test(message)) {
+    return 'Can’t reach the server. Check your connection and try again.';
+  }
+  if (/duplicate key|already exists/i.test(message)) {
+    return 'This record already exists.';
+  }
+  return message || fallback;
 }

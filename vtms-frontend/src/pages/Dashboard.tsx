@@ -318,9 +318,9 @@ export default function Dashboard() {
       {/* ── Row 3: Charts side-by-side ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Weekly attendance bar chart */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 min-w-0">
           <p className="text-sm font-semibold text-gray-700 mb-4">{batch5 ? batch5.name : 'Active Batch'} — Daily Attendance (Last 7 Days)</p>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={200} minWidth={0}>
             <BarChart data={weeklyAttendanceData} barCategoryGap="30%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
@@ -341,9 +341,9 @@ export default function Dashboard() {
         </div>
 
         {/* Batch comparison chart */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 min-w-0">
           <p className="text-sm font-semibold text-gray-700 mb-4">Batch Comparison — Enrollment vs Graduation Rate</p>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={200} minWidth={0}>
             <BarChart data={batchComparisonData} barCategoryGap="25%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="batch" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />

@@ -4,6 +4,7 @@ import {
   BarChart2, AlertCircle,
 } from 'lucide-react';
 import { useStore } from '../store';
+import { useAuth } from '../contexts/AuthContext';
 import { cn, formatDate, generateId, today } from '../lib/utils';
 import { COMPETENCY_LEVEL_LABELS } from '../types';
 import type { CompetencyLevel, CompetencyAssessment } from '../types';
@@ -15,7 +16,6 @@ const TRADE_COLORS: Record<string, string> = {
   Tailoring: 'bg-pink-100 text-pink-700',
   Masonry: 'bg-stone-100 text-stone-700',
   Electricity: 'bg-yellow-100 text-yellow-700',
-  Entrepreneurship: 'bg-purple-100 text-purple-700',
 };
 
 const LEVEL_BAR_COLORS: Record<CompetencyLevel, string> = {
@@ -40,6 +40,7 @@ const EMPTY_FORM: AssessmentForm = {
 };
 
 export default function Competency() {
+  const { profile } = useAuth();
   const {
     batches,
     trainees,
@@ -133,7 +134,7 @@ export default function Competency() {
       level: form.level as CompetencyLevel,
       score: 0,
       assessmentDate: today(),
-      assessorName: 'James Nkurunziza',
+      assessorName: profile?.fullName ?? 'Staff',
       feedback: form.feedback.trim(),
     };
 

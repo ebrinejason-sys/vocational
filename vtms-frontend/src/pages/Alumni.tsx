@@ -304,7 +304,7 @@ export default function Alumni() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Monthly Income (UGX)</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Monthly Income (USD)</label>
                 <input
                   type="number"
                   min="0"
@@ -674,7 +674,7 @@ export default function Alumni() {
             <Star className="w-4 h-4 text-amber-500" />
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Success Stories</h3>
             <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full">
-              Monthly income &gt; UGX 300,000
+              Monthly income &gt; USD 80
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

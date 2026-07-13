@@ -5,10 +5,12 @@ import {
   GraduationCap, ChevronRight, CheckCircle, Clock, Archive,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, formatCurrency, formatDate } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
+import { canEdit } from '../lib/permissions';
+import { cn, formatCurrency, formatDate, friendlyError } from '../lib/utils';
 import type { TradeType } from '../types';
 
-const TRADE_OPTIONS: TradeType[] = ['Carpentry', 'Tailoring', 'Masonry', 'Electricity', 'Entrepreneurship'];
+const TRADE_OPTIONS: TradeType[] = ['Carpentry', 'Tailoring', 'Electricity', 'Masonry'];
 
 const STATUS_CONFIG = {
   active: { label: 'Active', color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -22,7 +24,6 @@ const TRADE_COLORS: Record<TradeType, string> = {
   Tailoring: 'bg-pink-100 text-pink-700',
   Masonry: 'bg-stone-100 text-stone-700',
   Electricity: 'bg-yellow-100 text-yellow-700',
-  Entrepreneurship: 'bg-purple-100 text-purple-700',
 };
 
 interface NewBatchForm {
@@ -48,6 +49,8 @@ const EMPTY_FORM: NewBatchForm = {
 export default function Batches() {
   const navigate = useNavigate();
   const { batches, trainees, addBatch } = useStore();
+  const { profile } = useAuth();
+  const mayEdit = profile ? canEdit(profile.role, 'batches') : false;
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<NewBatchForm>(EMPTY_FORM);
   const [errors, setErrors] = useState<Partial<NewBatchForm>>({});
@@ -85,7 +88,7 @@ export default function Batches() {
       setErrors({});
       setShowForm(false);
     } catch (err) {
-      setErrors({ name: err instanceof Error ? err.message : 'Failed to create batch. Check your permissions.' });
+      setErrors({ name: friendlyError(err, 'Failed to create batch.') });
     }
   };
 
@@ -135,6 +138,7 @@ export default function Batches() {
           <h2 className="text-xl font-bold text-gray-900">Batches</h2>
           <p className="text-sm text-gray-500 mt-0.5">{batches.length} batches total</p>
         </div>
+        {mayEdit && (
         <button
           onClick={() => setShowForm((v) => !v)}
           className={cn(
@@ -154,6 +158,7 @@ export default function Batches() {
             </>
           )}
         </button>
+        )}
       </div>
 
       {/* New batch form */}
@@ -206,13 +211,13 @@ export default function Batches() {
                 />
               </Field>
 
-              <Field label="Budget Allocated (UGX) *" error={errors.budgetAllocated}>
+              <Field label="Budget Allocated (USD) *" error={errors.budgetAllocated}>
                 <input
                   type="number"
                   min="0"
                   value={form.budgetAllocated}
                   onChange={(e) => setForm({ ...form, budgetAllocated: e.target.value })}
-                  placeholder="e.g. 5500000"
+                  placeholder="e.g. 3000"
                   className={inputCls(errors.budgetAllocated)}
                 />
               </Field>

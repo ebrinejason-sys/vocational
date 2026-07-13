@@ -29,8 +29,23 @@ describe('permissions', () => {
   });
 
   it('rolesWithAccess returns only roles that can at least view the domain', () => {
-    expect(rolesWithAccess('financials').sort()).toEqual(['admin', 'director', 'finance_officer'].sort());
+    expect(rolesWithAccess('financials').sort()).toEqual(['admin', 'director', 'finance_officer', 'project_coordinator'].sort());
     expect(rolesWithAccess('case_notes').sort()).toEqual(['admin', 'case_worker', 'director'].sort());
-    expect(rolesWithAccess('batches').sort()).toEqual(['admin', 'case_worker', 'director', 'finance_officer', 'trainer'].sort());
+    expect(rolesWithAccess('batches').sort()).toEqual(
+      ['admin', 'case_worker', 'director', 'finance_officer', 'logistics_officer', 'project_coordinator', 'trainer'].sort()
+    );
+  });
+
+  it('logistics_officer can edit inventory but never sees case notes or financials', () => {
+    expect(canEdit('logistics_officer', 'inventory')).toBe(true);
+    expect(canView('logistics_officer', 'case_notes')).toBe(false);
+    expect(canView('logistics_officer', 'financials')).toBe(false);
+  });
+
+  it('project_coordinator has broad operational access but no case notes', () => {
+    expect(canEdit('project_coordinator', 'batches')).toBe(true);
+    expect(canView('project_coordinator', 'financials')).toBe(true);
+    expect(canEdit('project_coordinator', 'financials')).toBe(false);
+    expect(canView('project_coordinator', 'case_notes')).toBe(false);
   });
 });

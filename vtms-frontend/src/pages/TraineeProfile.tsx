@@ -505,7 +505,7 @@ export default function TraineeProfile() {
                   <InfoRow label="Current Employer" value={latestFollowUp.currentEmployer} />
                 )}
                 {latestFollowUp.monthlyIncome > 0 && (
-                  <InfoRow label="Monthly Income" value={`UGX ${latestFollowUp.monthlyIncome.toLocaleString()}`} />
+                  <InfoRow label="Monthly Income" value={`$${latestFollowUp.monthlyIncome.toLocaleString()}`} />
                 )}
                 <InfoRow label="Starter Kit" value={STARTER_KIT_LABELS[latestFollowUp.starterKitStatus]} />
                 {latestFollowUp.notes && (

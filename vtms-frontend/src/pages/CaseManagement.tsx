@@ -4,11 +4,10 @@ import {
   Filter, CheckCircle2, Clock, Plus, X,
 } from 'lucide-react';
 import { useStore } from '../store';
+import { useAuth } from '../contexts/AuthContext';
 import { cn, formatDate, generateId, today } from '../lib/utils';
 import { CASE_CATEGORY_LABELS } from '../types';
 import type { CaseCategory, CaseNote } from '../types';
-
-const AUTHOR_NAME = 'James Nkurunziza';
 
 const CATEGORY_OPTIONS: CaseCategory[] = [
   'trauma_healing',
@@ -43,6 +42,8 @@ const EMPTY_FORM: NoteForm = {
 };
 
 export default function CaseManagement() {
+  const { profile } = useAuth();
+  const AUTHOR_NAME = profile?.fullName ?? 'Staff';
   const {
     batches,
     trainees,
@@ -149,7 +150,7 @@ export default function CaseManagement() {
         <div>
           <h3 className="text-sm font-semibold text-sky-800">Confidentiality Notice</h3>
           <p className="text-xs text-sky-700 mt-1">
-            All case notes are strictly confidential and intended solely for authorised Agape Skills Centre
+            All case notes are strictly confidential and intended solely for authorised Street Children Ministry
             staff. Information must not be shared outside the support team without consent. Safeguarding
             incidents must be escalated to the Welfare Officer immediately. Handle all records with care
             in accordance with our data protection policy.

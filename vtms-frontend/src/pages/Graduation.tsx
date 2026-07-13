@@ -276,7 +276,7 @@ export default function Graduation() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Total Value (UGX)</label>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Total Value (USD)</label>
                   <input
                     type="number"
                     min="1"

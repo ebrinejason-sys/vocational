@@ -4,7 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const ALLOWED_ROLES = ['admin', 'director', 'trainer', 'case_worker', 'finance_officer'] as const;
+const ALLOWED_ROLES = [
+  'admin', 'director', 'project_coordinator', 'trainer',
+  'case_worker', 'finance_officer', 'logistics_officer',
+] as const;
 type Role = (typeof ALLOWED_ROLES)[number];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -45,7 +48,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email);
+  // Send the invited user back to this deployment's /welcome page (where
+  // they set their password) instead of Supabase's default Site URL —
+  // without this, invite links redirect to localhost. The URL must also be
+  // in the Supabase dashboard's Redirect URL allow-list.
+  const forwardedHost = req.headers['x-forwarded-host'] ?? req.headers.host;
+  const siteUrl = process.env.PUBLIC_SITE_URL ?? `https://${forwardedHost}`;
+
+  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${siteUrl}/welcome`,
+  });
   if (inviteError || !invited.user) {
     res.status(500).json({ error: inviteError?.message ?? 'Failed to send invite' });
     return;

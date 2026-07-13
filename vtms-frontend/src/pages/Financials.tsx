@@ -16,7 +16,7 @@ const EXPENSE_COLORS = [
   '#0f766e', '#115e59', '#134e4a', '#0891b2', '#22d3ee',
 ];
 
-const INCOME_CATEGORIES = ['Donor Grant', 'Production Sales', 'Church Contribution', 'Government Grant', 'Other'];
+const INCOME_CATEGORIES = ['Donor Grant', 'Application Form Fees', 'Production Sales', 'Church Contribution', 'Government Grant', 'Other'];
 const EXPENSE_CATEGORIES = ['Training Materials', 'Trainee Stipends', 'Trainer Fees', 'Administration', 'Utilities', 'Outreach & Mobilization', 'Equipment', 'Other'];
 
 const defaultForm = {
@@ -233,7 +233,7 @@ export default function Financials() {
           />
         </div>
         <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-          <span>UGX 0</span>
+          <span>$0</span>
           <span>{formatCurrency(budgetAllocated)} allocated</span>
         </div>
         {utilizationPct >= 90 && (
@@ -273,13 +273,13 @@ export default function Financials() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Amount (UGX)</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Amount (USD)</label>
                 <input
                   type="number"
                   min="1"
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  placeholder="e.g. 500000"
+                  placeholder="e.g. 500"
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
                 />
               </div>
@@ -299,7 +299,7 @@ export default function Financials() {
                     type="text"
                     value={form.donorName}
                     onChange={(e) => setForm({ ...form, donorName: e.target.value })}
-                    placeholder="e.g. Tearfund Uganda"
+                    placeholder="e.g. Word and Deed"
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
                   />
                 </div>
@@ -435,7 +435,7 @@ export default function Financials() {
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4">Expense Distribution Chart</h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
-            <div className="h-56">
+            <div className="h-56 min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie

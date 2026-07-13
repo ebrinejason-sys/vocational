@@ -5,6 +5,7 @@ import {
   Layers, ClipboardList,
 } from 'lucide-react';
 import { useStore } from '../store';
+import { useAuth } from '../contexts/AuthContext';
 import { cn, formatCurrency, formatDate, generateId, today } from '../lib/utils';
 import type { ProcurementRequest } from '../types';
 
@@ -39,6 +40,7 @@ const EMPTY_USAGE: UsageForm = { itemId: '', quantityUsed: '', batchId: '', purp
 const EMPTY_PROCUREMENT: ProcurementForm = { itemId: '', quantityRequested: '', estimatedCost: '' };
 
 export default function Inventory() {
+  const { profile } = useAuth();
   const {
     inventoryItems,
     inventoryUsage,
@@ -142,7 +144,7 @@ export default function Inventory() {
       quantityRequested: Number(procForm.quantityRequested),
       estimatedCost: Number(procForm.estimatedCost),
       status: 'pending',
-      requestedBy: 'James Nkurunziza',
+      requestedBy: profile?.fullName ?? 'Staff',
       createdAt: today(),
     };
 
@@ -164,7 +166,7 @@ export default function Inventory() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Inventory & Procurement</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Tools, materials, and equipment management for Agape Skills Centre
+            Tools, materials, and equipment management for Street Children Ministry
           </p>
         </div>
       </div>
@@ -251,7 +253,7 @@ export default function Inventory() {
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">On Hand</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Reorder At</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit Cost</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">UGX Value</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">USD Value</th>
                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
               </tr>
             </thead>
@@ -556,7 +558,7 @@ export default function Inventory() {
             {/* Estimated Cost */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                Estimated Cost (UGX) *
+                Estimated Cost (USD) *
                 {selectedProcItem && procForm.quantityRequested && (
                   <span className="text-gray-400 font-normal ml-1">auto-calculated</span>
                 )}

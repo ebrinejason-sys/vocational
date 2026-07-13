@@ -4,6 +4,7 @@ import { RequireAuth, RequireRole } from './components/RouteGuards';
 import { rolesWithAccess } from './lib/permissions';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import Welcome from './pages/Welcome';
 import Unauthorized from './pages/Unauthorized';
 import Dashboard from './pages/Dashboard';
 import Batches from './pages/Batches';
@@ -25,6 +26,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/welcome" element={<Welcome />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
           <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<Dashboard />} />

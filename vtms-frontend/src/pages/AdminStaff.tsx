@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
-import type { Role } from '../lib/permissions';
+import { ROLE_LABELS, type Role } from '../lib/permissions';
 
 interface StaffProfile {
   id: string;
@@ -12,7 +12,10 @@ interface StaffProfile {
   active: boolean;
 }
 
-const ROLE_OPTIONS: Role[] = ['admin', 'director', 'trainer', 'case_worker', 'finance_officer'];
+const ROLE_OPTIONS: Role[] = [
+  'admin', 'director', 'project_coordinator', 'trainer',
+  'case_worker', 'finance_officer', 'logistics_officer',
+];
 
 export default function AdminStaff() {
   const [staff, setStaff] = useState<StaffProfile[]>([]);
@@ -94,7 +97,7 @@ export default function AdminStaff() {
             onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary-400"
           >
-            {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </select>
         </div>
         {message && (
@@ -133,7 +136,7 @@ export default function AdminStaff() {
                   'text-[10px] font-bold px-2 py-0.5 rounded-full capitalize',
                   s.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                 )}>
-                  {s.role.replace('_', ' ')}{!s.active ? ' · inactive' : ''}
+                  {ROLE_LABELS[s.role] ?? s.role}{!s.active ? ' · inactive' : ''}
                 </span>
               </li>
             ))}
