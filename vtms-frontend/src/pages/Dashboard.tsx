@@ -37,14 +37,18 @@ export default function Dashboard() {
     inventoryItems,
     competencyAssessments,
     alumniFollowUps,
+    activeBatchId,
   } = useStore();
 
   // ── Top stats ──────────────────────────────────────────────────────────────
 
   const totalTrainees = trainees.length;
 
-  const batch5 = batches.find((b) => b.id === 'b5')!;
-  const batch5Trainees = trainees.filter((t) => t.batchId === 'b5');
+  // The active batch is whichever one is selected in the sidebar (see
+  // Layout.tsx) -- there is no fixed "batch 5" now that batches are real,
+  // per-organization Supabase data instead of a fixed local seed set.
+  const batch5 = batches.find((b) => b.id === activeBatchId);
+  const batch5Trainees = trainees.filter((t) => t.batchId === activeBatchId);
   const activeTrainees = batch5Trainees.filter((t) => t.status === 'enrolled').length;
 
   // Graduation rate across all completed batches
@@ -123,6 +127,7 @@ export default function Dashboard() {
   // ── Active batch progress ─────────────────────────────────────────────────
 
   const batch5Progress = useMemo(() => {
+    if (!batch5) return 0;
     const startDate = new Date(batch5.startDate);
     const today = new Date();
     // Estimate 6-month duration
@@ -217,7 +222,7 @@ export default function Dashboard() {
           icon={Activity}
           label="Active Trainees"
           value={activeTrainees}
-          sub="Batch 5 — Enrolled"
+          sub={batch5 ? `${batch5.name} — Enrolled` : 'No active batch — Enrolled'}
           accent
         />
         <StatCard
@@ -243,7 +248,7 @@ export default function Dashboard() {
             <ClipboardList className="w-4 h-4 text-gray-400" />
           </div>
           <p className="text-3xl font-bold text-primary-600">{weeklyAttendanceRate}%</p>
-          <p className="text-xs text-gray-400 mt-1">Batch 5 · Last 7 days</p>
+          <p className="text-xs text-gray-400 mt-1">{batch5 ? batch5.name : 'No active batch'} · Last 7 days</p>
           <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div
               className="h-full bg-primary-500 rounded-full transition-all"
@@ -260,23 +265,29 @@ export default function Dashboard() {
               Active
             </span>
           </div>
-          <p className="text-base font-bold text-gray-900">{batch5.name}</p>
-          <p className="text-xs text-gray-400 mb-3">
-            {batch5.trainerName} · Started {formatDate(batch5.startDate)}
-          </p>
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-            <span>Programme Progress</span>
-            <span className="font-semibold text-primary-600">{batch5Progress}%</span>
-          </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary-500 rounded-full transition-all"
-              style={{ width: `${batch5Progress}%` }}
-            />
-          </div>
-          <p className="text-[11px] text-gray-400 mt-2">
-            {activeTrainees} of {batch5.targetEnrollment} trainees enrolled
-          </p>
+          {batch5 ? (
+            <>
+              <p className="text-base font-bold text-gray-900">{batch5.name}</p>
+              <p className="text-xs text-gray-400 mb-3">
+                {batch5.trainerName} · Started {formatDate(batch5.startDate)}
+              </p>
+              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <span>Programme Progress</span>
+                <span className="font-semibold text-primary-600">{batch5Progress}%</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary-500 rounded-full transition-all"
+                  style={{ width: `${batch5Progress}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-400 mt-2">
+                {activeTrainees} of {batch5.targetEnrollment} trainees enrolled
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400">No batch selected yet.</p>
+          )}
         </div>
 
         {/* Quick actions */}
@@ -308,7 +319,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Weekly attendance bar chart */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-sm font-semibold text-gray-700 mb-4">Batch 5 — Daily Attendance (Last 7 Days)</p>
+          <p className="text-sm font-semibold text-gray-700 mb-4">{batch5 ? batch5.name : 'Active Batch'} — Daily Attendance (Last 7 Days)</p>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={weeklyAttendanceData} barCategoryGap="30%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -451,7 +462,7 @@ export default function Dashboard() {
         {/* Competency progress */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold text-gray-700">Batch 5 Competency Levels</p>
+            <p className="text-sm font-semibold text-gray-700">{batch5 ? batch5.name : 'Active Batch'} Competency Levels</p>
             <BookOpen className="w-4 h-4 text-primary-500" />
           </div>
           <p className="text-[11px] text-gray-400 mb-3">
