@@ -4,6 +4,20 @@
 -- Enable Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- 0. BASE TABLE PRIVILEGES
+-- RLS policies only ever get evaluated after Postgres's own GRANT layer
+-- allows the query through. Supabase projects normally come with these
+-- grants pre-configured for the public schema, but that can't be assumed —
+-- without them every request fails with "permission denied for table X"
+-- (Postgres error 42501), regardless of RLS policies, even for service_role.
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+
 -- 1. AUTH & ROLES
 CREATE TYPE user_role AS ENUM ('admin', 'director', 'trainer', 'case_worker', 'finance_officer');
 
