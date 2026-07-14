@@ -1,8 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { GraduationCap, UserPlus, X } from 'lucide-react';
+import {
+  GraduationCap, UserPlus, X, Pencil, PauseCircle, PlayCircle, Trash2,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { cn } from '../lib/utils';
+import { cn, friendlyError } from '../lib/utils';
+import { countTrainerDependencies } from '../lib/deleteGuards';
+import { formatDependencyBlock } from '../lib/lifecycle';
+import Modal from '../components/Modal';
 import { TRADE_OPTIONS, type TradeType } from '../types';
 
 interface TrainerRow {
@@ -13,11 +18,18 @@ interface TrainerRow {
   trades: TradeType[];
 }
 
+interface EditForm {
+  fullName: string;
+  trades: TradeType[];
+}
+
 const EMPTY_FORM = { fullName: '', email: '', trades: [] as TradeType[] };
 
 export default function Trainers() {
   const { profile } = useAuth();
-  const canCreate = profile?.role === 'admin' || profile?.role === 'director';
+  const isAdmin = profile?.role === 'admin';
+  const canCreate = isAdmin || profile?.role === 'director';
+  const canEdit = canCreate;
   const canEditTags = canCreate;
   const [trainers, setTrainers] = useState<TrainerRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +38,20 @@ export default function Trainers() {
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
+
+  const [showEdit, setShowEdit] = useState(false);
+  const [editTarget, setEditTarget] = useState<TrainerRow | null>(null);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<TrainerRow | null>(null);
+  const [deleteCounts, setDeleteCounts] = useState<Record<string, number> | null>(null);
+  const [deleteBlocked, setDeleteBlocked] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -57,6 +83,18 @@ export default function Trainers() {
         ? prev.trades.filter((t) => t !== trade)
         : [...prev.trades, trade],
     }));
+  }
+
+  function toggleEditTrade(trade: TradeType) {
+    setEditForm((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        trades: prev.trades.includes(trade)
+          ? prev.trades.filter((t) => t !== trade)
+          : [...prev.trades, trade],
+      };
+    });
   }
 
   async function handleCreate(e: FormEvent) {
@@ -122,6 +160,136 @@ export default function Trainers() {
     }
     await load();
     setSavingId(null);
+  }
+
+  function openEdit(trainer: TrainerRow) {
+    setEditTarget(trainer);
+    setEditForm({ fullName: trainer.fullName, trades: [...trainer.trades] });
+    setEditError(null);
+    setShowEdit(true);
+  }
+
+  async function replaceTrades(profileId: string, trades: TradeType[]) {
+    const { error: delError } = await supabase
+      .from('profile_trades')
+      .delete()
+      .eq('profile_id', profileId);
+    if (delError) throw delError;
+    if (trades.length) {
+      const { error: insError } = await supabase
+        .from('profile_trades')
+        .insert(trades.map((trade) => ({ profile_id: profileId, trade })));
+      if (insError) throw insError;
+    }
+  }
+
+  async function handleEditSave(e: FormEvent) {
+    e.preventDefault();
+    if (!editTarget || !editForm) return;
+    if (!editForm.trades.length) {
+      setEditError('Select at least one trade.');
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      if (isAdmin) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ full_name: editForm.fullName.trim() })
+          .eq('id', editTarget.id);
+        if (error) throw error;
+      }
+      await replaceTrades(editTarget.id, editForm.trades);
+      setShowEdit(false);
+      setEditTarget(null);
+      setEditForm(null);
+      await load();
+    } catch (err) {
+      setEditError(friendlyError(err, 'Failed to update trainer.'));
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function handlePause(trainer: TrainerRow) {
+    setBanner(null);
+    setLifecycleLoading(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ active: false })
+        .eq('id', trainer.id);
+      if (error) throw error;
+      await load();
+    } catch (err) {
+      setBanner({ type: 'error', text: friendlyError(err, 'Failed to pause trainer.') });
+    } finally {
+      setLifecycleLoading(false);
+    }
+  }
+
+  async function handleResume(trainer: TrainerRow) {
+    setBanner(null);
+    setLifecycleLoading(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ active: true })
+        .eq('id', trainer.id);
+      if (error) throw error;
+      await load();
+    } catch (err) {
+      setBanner({ type: 'error', text: friendlyError(err, 'Failed to resume trainer.') });
+    } finally {
+      setLifecycleLoading(false);
+    }
+  }
+
+  async function openDelete(trainer: TrainerRow) {
+    setDeleteTarget(trainer);
+    setDeleteError(null);
+    setDeleteCounts(null);
+    setDeleteBlocked(false);
+    setShowDelete(true);
+    setDeleteLoading(true);
+    try {
+      const counts = await countTrainerDependencies(trainer.id);
+      setDeleteCounts(counts);
+      setDeleteBlocked(Object.values(counts).some((n) => n > 0));
+    } catch (err) {
+      setDeleteError(friendlyError(err, 'Failed to check dependencies.'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || deleteBlocked) return;
+    setDeleteError(null);
+    setDeleteLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/delete-staff', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ userId: deleteTarget.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Failed to delete trainer');
+      }
+      setShowDelete(false);
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      setDeleteError(friendlyError(err, 'Failed to delete trainer.'));
+    } finally {
+      setDeleteLoading(false);
+    }
   }
 
   const inputCls =
@@ -254,9 +422,62 @@ export default function Trainers() {
                   <GraduationCap className="w-5 h-5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-gray-900 truncate">{t.fullName}</p>
-                  <p className="text-xs text-gray-500 truncate">{t.email}</p>
-                  {!t.active && <p className="text-xs text-amber-700 mt-1">Inactive</p>}
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 truncate">{t.fullName}</p>
+                      <p className="text-xs text-gray-500 truncate">{t.email}</p>
+                      {!t.active && (
+                        <p className="text-xs text-amber-700 mt-1 font-medium">Paused — cannot sign in</p>
+                      )}
+                    </div>
+                    {(canEdit || isAdmin) && (
+                      <div className="flex flex-wrap gap-1.5 shrink-0">
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(t)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            Edit
+                          </button>
+                        )}
+                        {isAdmin && t.active && (
+                          <button
+                            type="button"
+                            onClick={() => handlePause(t)}
+                            disabled={lifecycleLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-amber-200 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                          >
+                            <PauseCircle className="w-3.5 h-3.5" />
+                            Pause
+                          </button>
+                        )}
+                        {isAdmin && !t.active && (
+                          <button
+                            type="button"
+                            onClick={() => handleResume(t)}
+                            disabled={lifecycleLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-green-200 text-green-800 hover:bg-green-50 disabled:opacity-60"
+                          >
+                            <PlayCircle className="w-3.5 h-3.5" />
+                            Resume
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => openDelete(t)}
+                            disabled={lifecycleLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <p className="text-[11px] text-gray-400 mt-2 mb-1">
                     {canEditTags ? 'Tap to set / change trades:' : 'Trades:'}
                   </p>
@@ -287,6 +508,108 @@ export default function Trainers() {
             </div>
           ))}
         </div>
+      )}
+
+      {showEdit && editTarget && editForm && (
+        <Modal title={`Edit ${editTarget.fullName}`} onClose={() => setShowEdit(false)}>
+          <form onSubmit={handleEditSave} className="space-y-4">
+            {isAdmin && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Full name *</label>
+                <input
+                  required
+                  className={inputCls}
+                  value={editForm.fullName}
+                  onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                />
+              </div>
+            )}
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Trades they teach *</p>
+              <div className="flex flex-wrap gap-2">
+                {TRADE_OPTIONS.map((trade) => (
+                  <button
+                    key={trade}
+                    type="button"
+                    onClick={() => toggleEditTrade(trade)}
+                    className={cn(
+                      'text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors',
+                      editForm.trades.includes(trade)
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
+                    )}
+                  >
+                    {trade}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {editError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {editError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEdit(false)}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={editSaving}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60"
+              >
+                {editSaving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showDelete && deleteTarget && (
+        <Modal title={`Delete ${deleteTarget.fullName}`} onClose={() => setShowDelete(false)}>
+          <div className="space-y-4">
+            {deleteLoading && !deleteCounts && (
+              <p className="text-sm text-gray-500">Checking linked records…</p>
+            )}
+            {deleteCounts && deleteBlocked && (
+              <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                {formatDependencyBlock(deleteTarget.fullName, deleteCounts)}
+              </p>
+            )}
+            {deleteCounts && !deleteBlocked && (
+              <p className="text-sm text-gray-600">
+                This permanently deletes <strong>{deleteTarget.fullName}</strong> and their account.
+                This cannot be undone.
+              </p>
+            )}
+            {deleteError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {deleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDelete(false)}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteLoading || deleteBlocked || !deleteCounts}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleteLoading ? 'Deleting…' : 'Delete trainer'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
