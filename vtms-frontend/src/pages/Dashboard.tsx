@@ -9,7 +9,7 @@ import {
   Package, BookOpen, UserPlus, ChevronRight, Activity,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, formatCurrency, formatDate } from '../lib/utils';
+import { cn, formatCurrency, formatDate, formatBatchTrainers } from '../lib/utils';
 import { COMPETENCY_LEVEL_LABELS, CASE_CATEGORY_LABELS } from '../types';
 import type { CompetencyLevel } from '../types';
 
@@ -269,7 +269,7 @@ export default function Dashboard() {
             <>
               <p className="text-base font-bold text-gray-900">{batch5.name}</p>
               <p className="text-xs text-gray-400 mb-3">
-                {batch5.trainerName} · Started {formatDate(batch5.startDate)}
+                {formatBatchTrainers(batch5.trades)} · Started {formatDate(batch5.startDate)}
               </p>
               <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
                 <span>Programme Progress</span>

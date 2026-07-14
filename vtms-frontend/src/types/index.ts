@@ -10,16 +10,24 @@ export type ProcurementStatus = 'pending' | 'approved' | 'purchased' | 'cancelle
 export type TransactionType = 'income' | 'expense';
 export type StarterKitStatus = 'in_use' | 'sold' | 'lost' | 'damaged' | 'not_issued';
 
+export const TRADE_OPTIONS: TradeType[] = ['Carpentry', 'Tailoring', 'Electricity', 'Masonry'];
+
+export interface BatchTradeAssignment {
+  trade: TradeType;
+  trainerId: string | null;
+  trainerName: string;
+}
+
 export interface Batch {
   id: string;
   name: string;
-  trade: TradeType;
+  /** Trades offered in this cohort + assigned trainers. */
+  trades: BatchTradeAssignment[];
   startDate: string;
   endDate: string | null;
   status: BatchStatus;
   budgetAllocated: number;
   targetEnrollment: number;
-  trainerName: string;
   description: string;
 }
 
@@ -35,6 +43,8 @@ export interface VulnerabilityAssessment {
 export interface Trainee {
   id: string;
   batchId: string;
+  /** Must be one of the parent batch's trades. */
+  trade: TradeType;
   firstName: string;
   lastName: string;
   dateOfBirth: string;

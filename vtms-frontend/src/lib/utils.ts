@@ -34,6 +34,18 @@ export function today(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+/** Comma-separated trade labels for a multi-trade batch. */
+export function formatBatchTrades(trades: { trade: string }[]): string {
+  if (!trades.length) return '—';
+  return trades.map((t) => t.trade).join(', ');
+}
+
+/** Trainer names on a batch (unique, non-empty). */
+export function formatBatchTrainers(trades: { trainerName: string }[]): string {
+  const names = [...new Set(trades.map((t) => t.trainerName.trim()).filter(Boolean))];
+  return names.length ? names.join(', ') : '—';
+}
+
 /**
  * Turn raw Supabase/Postgres errors into copy a field officer can act on,
  * instead of leaking internals like "new row violates row-level security

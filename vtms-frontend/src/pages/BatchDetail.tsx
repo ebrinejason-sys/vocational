@@ -8,7 +8,7 @@ import {
   DollarSign, ClipboardList, BookOpen, Shield,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, formatCurrency, formatDate, getVulnerabilityLabel, getAttendanceRate } from '../lib/utils';
+import { cn, formatCurrency, formatDate, getVulnerabilityLabel, getAttendanceRate, formatBatchTrainers } from '../lib/utils';
 import { COMPETENCY_LEVEL_LABELS } from '../types';
 import type { CompetencyLevel } from '../types';
 
@@ -145,9 +145,11 @@ export default function BatchDetail() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <h2 className="text-xl font-bold text-gray-900">{batch.name}</h2>
-            <span className={cn('text-[11px] font-bold px-2 py-0.5 rounded-full', TRADE_COLORS[batch.trade])}>
-              {batch.trade}
-            </span>
+            {batch.trades.map((t) => (
+              <span key={t.trade} className={cn('text-[11px] font-bold px-2 py-0.5 rounded-full', TRADE_COLORS[t.trade])}>
+                {t.trade}
+              </span>
+            ))}
             <span className={cn(
               'text-[11px] font-bold px-2 py-0.5 rounded-full capitalize',
               batch.status === 'active' ? 'bg-green-100 text-green-700' :
@@ -158,7 +160,7 @@ export default function BatchDetail() {
             </span>
           </div>
           <p className="text-sm text-gray-500">
-            Trainer: <strong className="text-gray-700">{batch.trainerName}</strong>
+            Trainers: <strong className="text-gray-700">{formatBatchTrainers(batch.trades)}</strong>
             {' · '}
             {formatDate(batch.startDate)} – {batch.endDate ? formatDate(batch.endDate) : 'Ongoing'}
           </p>

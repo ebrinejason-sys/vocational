@@ -3,9 +3,9 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Package,
   DollarSign, Heart, GraduationCap, UserCheck, Menu, X, Layers,
-  LogOut, ShieldCheck,
+  LogOut, ShieldCheck, Wrench,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatBatchTrades } from '../lib/utils';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canView, type Domain } from '../lib/permissions';
@@ -16,6 +16,7 @@ import Preloader from './Preloader';
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; domain?: Domain }[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
   { to: '/batches', icon: Layers, label: 'Batches', domain: 'batches' },
+  { to: '/trainers', icon: Wrench, label: 'Trainers', domain: 'batches' },
   { to: '/trainees', icon: Users, label: 'Trainees', domain: 'trainees' },
   { to: '/attendance', icon: ClipboardList, label: 'Attendance', domain: 'attendance' },
   { to: '/competency', icon: BookOpen, label: 'Competency', domain: 'competency' },
@@ -175,7 +176,7 @@ export default function Layout() {
             </h1>
             {activeBatch && (
               <p className="text-[11px] text-gray-400 truncate hidden sm:block">
-                {activeBatch.name} · {activeBatch.trade}
+                {activeBatch.name} · {formatBatchTrades(activeBatch.trades)}
               </p>
             )}
           </div>

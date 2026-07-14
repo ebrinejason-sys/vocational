@@ -8,7 +8,7 @@ import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { cn, getVulnerabilityLabel, formatDate, friendlyError } from '../lib/utils';
-import type { Trainee, VulnerabilityAssessment, TraineeStatus } from '../types';
+import type { Trainee, VulnerabilityAssessment, TraineeStatus, TradeType } from '../types';
 
 // ── Vulnerability score computation ──────────────────────────────────────────
 
@@ -86,6 +86,7 @@ type FormData = {
   emergencyPhone: string;
   mobilizationSource: string;
   batchId: string;
+  trade: TradeType | '';
   // Vulnerability assessment
   housingStatus: VulnerabilityAssessment['housingStatus'];
   foodSecurity: VulnerabilityAssessment['foodSecurity'];
@@ -95,7 +96,7 @@ type FormData = {
   disabilityDetails: string;
 };
 
-function defaultForm(activeBatchId: string): FormData {
+function defaultForm(activeBatchId: string, trade: TradeType | '' = ''): FormData {
   return {
     firstName: '',
     lastName: '',
@@ -107,6 +108,7 @@ function defaultForm(activeBatchId: string): FormData {
     emergencyPhone: '',
     mobilizationSource: '',
     batchId: activeBatchId,
+    trade,
     housingStatus: 'rented',
     foodSecurity: 'inadequate',
     previousEducation: 'primary',
@@ -120,9 +122,32 @@ function defaultForm(activeBatchId: string): FormData {
 
 function RegistrationForm({ onClose }: { onClose: () => void }) {
   const { batches, activeBatchId, addTrainee } = useStore();
-  const [form, setForm] = useState<FormData>(defaultForm(activeBatchId));
+  const resolvedBatchId = batches.some((b) => b.id === activeBatchId)
+    ? activeBatchId
+    : (batches[0]?.id ?? '');
+  const initialTrades = batches.find((b) => b.id === resolvedBatchId)?.trades ?? [];
+  const [form, setForm] = useState<FormData>(() =>
+    defaultForm(resolvedBatchId, initialTrades[0]?.trade ?? '')
+  );
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const selectedBatch = batches.find((b) => b.id === form.batchId);
+  const tradeOptions = selectedBatch?.trades ?? [];
+
+  // Keep batch/trade valid after purge / batch list changes.
+  React.useEffect(() => {
+    if (!batches.length) return;
+    setForm((prev) => {
+      const batchId = batches.some((b) => b.id === prev.batchId) ? prev.batchId : resolvedBatchId;
+      const trades = batches.find((b) => b.id === batchId)?.trades ?? [];
+      const trade = trades.some((t) => t.trade === prev.trade)
+        ? prev.trade
+        : (trades[0]?.trade ?? '');
+      if (batchId === prev.batchId && trade === prev.trade) return prev;
+      return { ...prev, batchId, trade };
+    });
+  }, [batches, resolvedBatchId]);
 
   const assessment: VulnerabilityAssessment = {
     housingStatus: form.housingStatus,
@@ -143,9 +168,22 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitError(null);
+    if (!batches.length) {
+      setSubmitError('Create a batch first, then register trainees into it.');
+      return;
+    }
+    if (!form.batchId || !batches.some((b) => b.id === form.batchId)) {
+      setSubmitError('Select a valid batch for this trainee.');
+      return;
+    }
+    if (!form.trade || !tradeOptions.some((t) => t.trade === form.trade)) {
+      setSubmitError('Select a trade offered in this batch.');
+      return;
+    }
     try {
       await addTrainee({
         batchId: form.batchId,
+        trade: form.trade,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         dateOfBirth: form.dateOfBirth,
@@ -181,7 +219,11 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex gap-3">
           <button
-            onClick={() => { setForm(defaultForm(activeBatchId)); setSubmitted(false); }}
+            onClick={() => {
+              const trades = batches.find((b) => b.id === resolvedBatchId)?.trades ?? [];
+              setForm(defaultForm(resolvedBatchId, trades[0]?.trade ?? ''));
+              setSubmitted(false);
+            }}
             className="px-4 py-2 text-sm font-medium text-primary-600 border border-primary-300 rounded-lg hover:bg-primary-50 transition-colors"
           >
             Register Another
@@ -232,9 +274,42 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className={labelCls}>Batch *</label>
-            <select required className={inputCls} value={form.batchId} onChange={(e) => set('batchId', e.target.value)}>
+            <select
+              required
+              className={inputCls}
+              value={form.batchId}
+              onChange={(e) => {
+                const batchId = e.target.value;
+                const trades = batches.find((b) => b.id === batchId)?.trades ?? [];
+                setForm((prev) => ({
+                  ...prev,
+                  batchId,
+                  trade: trades[0]?.trade ?? '',
+                }));
+              }}
+            >
+              {batches.length === 0 && <option value="">No batches yet — create one first</option>}
               {batches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
+                <option key={b.id} value={b.id}>
+                  {b.name}{b.trades.length ? ` (${b.trades.map((t) => t.trade).join(', ')})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Trade *</label>
+            <select
+              required
+              className={inputCls}
+              value={form.trade}
+              onChange={(e) => set('trade', e.target.value as TradeType)}
+              disabled={!tradeOptions.length}
+            >
+              {!tradeOptions.length && <option value="">No trades on this batch</option>}
+              {tradeOptions.map((t) => (
+                <option key={t.trade} value={t.trade}>
+                  {t.trade}{t.trainerName ? ` — ${t.trainerName}` : ''}
+                </option>
               ))}
             </select>
           </div>
@@ -480,7 +555,7 @@ export default function Trainees() {
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 text-[11px] text-gray-500 flex-wrap">
                       {batch && (
-                        <span className="font-medium text-gray-600">{batch.name} · {batch.trade}</span>
+                        <span className="font-medium text-gray-600">{batch.name} · {t.trade}</span>
                       )}
                       <span className="flex items-center gap-1">
                         <Phone className="w-3 h-3" />

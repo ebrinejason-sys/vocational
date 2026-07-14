@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
-import { cn, formatDate, generateId, today } from '../lib/utils';
+import { cn, formatDate, generateId, today, formatBatchTrainers, formatBatchTrades } from '../lib/utils';
 import { COMPETENCY_LEVEL_LABELS } from '../types';
 import type { CompetencyLevel, CompetencyAssessment } from '../types';
 
@@ -68,7 +68,11 @@ export default function Competency() {
   );
 
   const batchModules = useMemo(
-    () => selectedBatch ? modules.filter((m) => m.trade === selectedBatch.trade) : [],
+    () => {
+      if (!selectedBatch) return [];
+      const trades = new Set(selectedBatch.trades.map((t) => t.trade));
+      return modules.filter((m) => trades.has(m.trade));
+    },
     [modules, selectedBatch]
   );
 
@@ -186,18 +190,20 @@ export default function Competency() {
           <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
         </div>
         {selectedBatch && (
-          <div className="flex items-center gap-3 mt-3">
-            <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full', TRADE_COLORS[selectedBatch.trade])}>
-              {selectedBatch.trade}
-            </span>
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
+            {selectedBatch.trades.map((t) => (
+              <span key={t.trade} className={cn('text-xs font-semibold px-2.5 py-1 rounded-full', TRADE_COLORS[t.trade])}>
+                {t.trade}
+              </span>
+            ))}
             <span className="text-xs text-gray-500">
-              Trainer: {selectedBatch.trainerName}
+              Trainers: {formatBatchTrainers(selectedBatch.trades)}
             </span>
             <span className="text-xs text-gray-500">
               {batchTrainees.length} enrolled trainees
             </span>
             <span className="text-xs text-gray-500">
-              {batchModules.length} modules
+              {batchModules.length} modules · {formatBatchTrades(selectedBatch.trades)}
             </span>
           </div>
         )}

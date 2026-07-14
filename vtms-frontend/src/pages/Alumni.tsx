@@ -275,7 +275,7 @@ export default function Alumni() {
                     const b = getBatch(t.batchId);
                     return (
                       <option key={t.id} value={t.id}>
-                        {t.firstName} {t.lastName} — {b?.trade ?? ''} {b?.name ? `(${b.name})` : ''}
+                        {t.firstName} {t.lastName} — {t.trade} {b?.name ? `(${b.name})` : ''}
                       </option>
                     );
                   })}
@@ -370,7 +370,7 @@ export default function Alumni() {
                     const b = getBatch(t.batchId);
                     return (
                       <option key={t.id} value={t.id}>
-                        {t.firstName} {t.lastName} — {b?.trade ?? ''}
+                        {t.firstName} {t.lastName} — {t.trade}
                       </option>
                     );
                   })}
@@ -483,7 +483,7 @@ export default function Alumni() {
                           </div>
                         </td>
                         <td className="py-3 text-gray-600 text-xs">
-                          <span className="font-medium">{batch?.trade}</span>
+                          <span className="font-medium">{t.trade}</span>
                           <br />
                           <span className="text-gray-400">{batch?.name}</span>
                         </td>
@@ -692,7 +692,7 @@ export default function Alumni() {
                     </div>
                     <div>
                       <p className="font-bold text-gray-900">{t.firstName} {t.lastName}</p>
-                      <p className="text-[10px] text-gray-500">{batch?.trade} · {batch?.name}</p>
+                      <p className="text-[10px] text-gray-500">{t.trade} · {batch?.name}</p>
                     </div>
                     <Star className="w-4 h-4 text-amber-500 ml-auto shrink-0" />
                   </div>

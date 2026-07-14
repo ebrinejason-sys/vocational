@@ -4,7 +4,7 @@ import {
   Plus, Users, TrendingUp,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { formatCurrency, formatDate, generateId, today, cn } from '../lib/utils';
+import { formatCurrency, formatDate, generateId, today, cn, formatBatchTrades, formatBatchTrainers } from '../lib/utils';
 import type { StarterKitStatus } from '../types';
 
 const KIT_STATUS_STYLES: Record<StarterKitStatus, string> = {
@@ -269,7 +269,7 @@ export default function Graduation() {
                       const b = getBatch(t.batchId);
                       return (
                         <option key={t.id} value={t.id}>
-                          {t.firstName} {t.lastName} — {b?.trade ?? ''} {b?.name ? `(${b.name})` : ''}
+                          {t.firstName} {t.lastName} — {t.trade} {b?.name ? `(${b.name})` : ''}
                         </option>
                       );
                     })}
@@ -370,7 +370,7 @@ export default function Graduation() {
               </div>
               <div>
                 <h3 className="font-bold text-gray-900 text-sm">{batch.name}</h3>
-                <p className="text-xs text-gray-400">{batch.trade} · Trainer: {batch.trainerName}</p>
+                <p className="text-xs text-gray-400">{formatBatchTrades(batch.trades)} · Trainers: {formatBatchTrainers(batch.trades)}</p>
               </div>
               <span className="ml-auto text-xs font-bold bg-primary-50 text-primary-700 px-2.5 py-1 rounded-full">
                 {batchTrainees.length} graduate{batchTrainees.length !== 1 ? 's' : ''}
@@ -405,7 +405,7 @@ export default function Graduation() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 text-gray-600 text-xs">{batch.trade}</td>
+                        <td className="py-3 text-gray-600 text-xs">{formatBatchTrades(batch.trades)}</td>
                         <td className="py-3 text-gray-600 text-xs">
                           {t.graduationDate ? formatDate(t.graduationDate) : <span className="text-gray-300">—</span>}
                         </td>

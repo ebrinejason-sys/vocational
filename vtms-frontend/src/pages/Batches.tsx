@@ -1,16 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, X, Layers, Calendar, User, DollarSign, Users,
+  Plus, X, Layers, Calendar, DollarSign, Users,
   GraduationCap, ChevronRight, CheckCircle, Clock, Archive,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
-import { cn, formatCurrency, formatDate, friendlyError } from '../lib/utils';
-import type { TradeType } from '../types';
-
-const TRADE_OPTIONS: TradeType[] = ['Carpentry', 'Tailoring', 'Electricity', 'Masonry'];
+import { cn, formatCurrency, formatDate, friendlyError, formatBatchTrades, formatBatchTrainers } from '../lib/utils';
+import { TRADE_OPTIONS, type TradeType } from '../types';
+import { supabase } from '../lib/supabase';
 
 const STATUS_CONFIG = {
   active: { label: 'Active', color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -26,24 +25,30 @@ const TRADE_COLORS: Record<TradeType, string> = {
   Electricity: 'bg-yellow-100 text-yellow-700',
 };
 
+interface TrainerOption {
+  id: string;
+  fullName: string;
+  trades: TradeType[];
+}
+
 interface NewBatchForm {
   name: string;
-  trade: TradeType;
   startDate: string;
-  trainerName: string;
   budgetAllocated: string;
   targetEnrollment: string;
   description: string;
+  selectedTrades: TradeType[];
+  trainersByTrade: Partial<Record<TradeType, string>>;
 }
 
 const EMPTY_FORM: NewBatchForm = {
   name: '',
-  trade: 'Carpentry',
   startDate: '',
-  trainerName: '',
   budgetAllocated: '',
   targetEnrollment: '',
   description: '',
+  selectedTrades: [],
+  trainersByTrade: {},
 };
 
 export default function Batches() {
@@ -53,13 +58,41 @@ export default function Batches() {
   const mayEdit = profile ? canEdit(profile.role, 'batches') : false;
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<NewBatchForm>(EMPTY_FORM);
-  const [errors, setErrors] = useState<Partial<NewBatchForm>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [trainers, setTrainers] = useState<TrainerOption[]>([]);
+
+  useEffect(() => {
+    if (!showForm) return;
+    let cancelled = false;
+    (async () => {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, profile_trades(trade)')
+        .eq('role', 'trainer')
+        .eq('active', true)
+        .order('full_name');
+      if (cancelled || !profiles) return;
+      setTrainers(
+        profiles.map((p) => ({
+          id: p.id as string,
+          fullName: p.full_name as string,
+          trades: ((p.profile_trades as { trade: string }[] | null) ?? []).map((t) => t.trade as TradeType),
+        }))
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [showForm]);
 
   const validate = (): boolean => {
-    const newErrors: Partial<NewBatchForm> = {};
+    const newErrors: Record<string, string> = {};
     if (!form.name.trim()) newErrors.name = 'Batch name is required';
     if (!form.startDate) newErrors.startDate = 'Start date is required';
-    if (!form.trainerName.trim()) newErrors.trainerName = 'Trainer name is required';
+    if (!form.selectedTrades.length) newErrors.trades = 'Select at least one trade';
+    for (const trade of form.selectedTrades) {
+      if (!form.trainersByTrade[trade]) {
+        newErrors[`trainer_${trade}`] = `Pick a trainer for ${trade}`;
+      }
+    }
     if (!form.budgetAllocated || isNaN(Number(form.budgetAllocated)))
       newErrors.budgetAllocated = 'Valid budget is required';
     if (!form.targetEnrollment || isNaN(Number(form.targetEnrollment)))
@@ -75,14 +108,21 @@ export default function Batches() {
     try {
       await addBatch({
         name: form.name.trim(),
-        trade: form.trade,
         startDate: form.startDate,
         endDate: null,
         status: 'planned',
         budgetAllocated: Number(form.budgetAllocated),
         targetEnrollment: Number(form.targetEnrollment),
-        trainerName: form.trainerName.trim(),
         description: form.description.trim(),
+        trades: form.selectedTrades.map((trade) => {
+          const trainerId = form.trainersByTrade[trade]!;
+          const trainer = trainers.find((t) => t.id === trainerId);
+          return {
+            trade,
+            trainerId,
+            trainerName: trainer?.fullName ?? '',
+          };
+        }),
       });
       setForm(EMPTY_FORM);
       setErrors({});
@@ -90,6 +130,17 @@ export default function Batches() {
     } catch (err) {
       setErrors({ name: friendlyError(err, 'Failed to create batch.') });
     }
+  };
+
+  const toggleTrade = (trade: TradeType) => {
+    setForm((prev) => {
+      const selected = prev.selectedTrades.includes(trade)
+        ? prev.selectedTrades.filter((t) => t !== trade)
+        : [...prev.selectedTrades, trade];
+      const trainersByTrade = { ...prev.trainersByTrade };
+      if (!selected.includes(trade)) delete trainersByTrade[trade];
+      return { ...prev, selectedTrades: selected, trainersByTrade };
+    });
   };
 
   const getBatchStats = (batchId: string) => {
@@ -118,228 +169,208 @@ export default function Batches() {
     <div>
       <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
       {children}
-      {error && <p className="text-[11px] text-red-500 mt-0.5">{error}</p>}
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
     </div>
   );
 
-  const inputCls = (hasError?: string) =>
+  const inputCls = (error?: string) =>
     cn(
-      'w-full border rounded-lg px-3 py-2 text-sm text-gray-800 outline-none transition-colors',
-      hasError
-        ? 'border-red-300 focus:border-red-400'
-        : 'border-gray-200 focus:border-primary-400'
+      'w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 bg-white',
+      error ? 'border-red-300' : 'border-gray-200'
     );
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Batches</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{batches.length} batches total</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Cohorts can include multiple trades, each with an assigned trainer.
+          </p>
         </div>
         {mayEdit && (
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
-            showForm
-              ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              : 'bg-primary-600 text-white hover:bg-primary-700'
-          )}
-        >
-          {showForm ? (
-            <>
-              <X className="w-4 h-4" /> Cancel
-            </>
-          ) : (
-            <>
-              <Plus className="w-4 h-4" /> New Batch
-            </>
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => setShowForm((v) => !v)}
+            className={cn(
+              'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+              showForm
+                ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-primary-600 text-white hover:bg-primary-700'
+            )}
+          >
+            {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {showForm ? 'Cancel' : 'New Batch'}
+          </button>
         )}
       </div>
 
-      {/* New batch form */}
       {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border border-primary-100 p-6">
-          <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <Layers className="w-4 h-4 text-primary-600" />
-            Create New Batch
-          </h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Batch Name *" error={errors.name}>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Batch 6 — Tailoring 2026"
-                  className={inputCls(errors.name)}
-                />
-              </Field>
-
-              <Field label="Trade *">
-                <select
-                  value={form.trade}
-                  onChange={(e) => setForm({ ...form, trade: e.target.value as TradeType })}
-                  className={inputCls()}
-                >
-                  {TRADE_OPTIONS.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Start Date *" error={errors.startDate}>
-                <input
-                  type="date"
-                  value={form.startDate}
-                  onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                  className={inputCls(errors.startDate)}
-                />
-              </Field>
-
-              <Field label="Trainer Name *" error={errors.trainerName}>
-                <input
-                  type="text"
-                  value={form.trainerName}
-                  onChange={(e) => setForm({ ...form, trainerName: e.target.value })}
-                  placeholder="e.g. Ms. Kyomuhangi Grace"
-                  className={inputCls(errors.trainerName)}
-                />
-              </Field>
-
-              <Field label="Budget Allocated (USD) *" error={errors.budgetAllocated}>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.budgetAllocated}
-                  onChange={(e) => setForm({ ...form, budgetAllocated: e.target.value })}
-                  placeholder="e.g. 3000"
-                  className={inputCls(errors.budgetAllocated)}
-                />
-              </Field>
-
-              <Field label="Target Enrollment *" error={errors.targetEnrollment}>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.targetEnrollment}
-                  onChange={(e) => setForm({ ...form, targetEnrollment: e.target.value })}
-                  placeholder="e.g. 15"
-                  className={inputCls(errors.targetEnrollment)}
-                />
-              </Field>
-            </div>
-
-            <Field label="Description">
-              <textarea
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="Brief description of the batch focus and target group..."
-                rows={2}
-                className={inputCls()}
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <h3 className="text-sm font-bold text-gray-800">Create Batch</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Batch Name *" error={errors.name}>
+              <input
+                className={inputCls(errors.name)}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g. Batch 6 — 2026"
               />
             </Field>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => { setShowForm(false); setForm(EMPTY_FORM); setErrors({}); }}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 rounded-lg text-sm font-semibold bg-primary-600 text-white hover:bg-primary-700 transition-colors"
-              >
-                Create Batch
-              </button>
+            <Field label="Start Date *" error={errors.startDate}>
+              <input
+                type="date"
+                className={inputCls(errors.startDate)}
+                value={form.startDate}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+              />
+            </Field>
+            <Field label="Budget (USD) *" error={errors.budgetAllocated}>
+              <input
+                className={inputCls(errors.budgetAllocated)}
+                value={form.budgetAllocated}
+                onChange={(e) => setForm({ ...form, budgetAllocated: e.target.value })}
+                placeholder="3000"
+              />
+            </Field>
+            <Field label="Target Enrollment *" error={errors.targetEnrollment}>
+              <input
+                className={inputCls(errors.targetEnrollment)}
+                value={form.targetEnrollment}
+                onChange={(e) => setForm({ ...form, targetEnrollment: e.target.value })}
+                placeholder="40"
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Description">
+                <textarea
+                  className={inputCls()}
+                  rows={2}
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                />
+              </Field>
             </div>
-          </form>
-        </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold text-gray-600 mb-2">Trades & trainers *</p>
+            {errors.trades && <p className="text-xs text-red-600 mb-2">{errors.trades}</p>}
+            <div className="space-y-3">
+              {TRADE_OPTIONS.map((trade) => {
+                const checked = form.selectedTrades.includes(trade);
+                const options = trainers.filter((t) => t.trades.includes(trade));
+                return (
+                  <div key={trade} className="rounded-lg border border-gray-100 p-3 space-y-2">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleTrade(trade)}
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-400"
+                      />
+                      <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', TRADE_COLORS[trade])}>
+                        {trade}
+                      </span>
+                    </label>
+                    {checked && (
+                      <div>
+                        <select
+                          className={inputCls(errors[`trainer_${trade}`])}
+                          value={form.trainersByTrade[trade] ?? ''}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              trainersByTrade: { ...form.trainersByTrade, [trade]: e.target.value },
+                            })
+                          }
+                        >
+                          <option value="">Select trainer…</option>
+                          {options.map((t) => (
+                            <option key={t.id} value={t.id}>{t.fullName}</option>
+                          ))}
+                        </select>
+                        {errors[`trainer_${trade}`] && (
+                          <p className="text-xs text-red-600 mt-1">{errors[`trainer_${trade}`]}</p>
+                        )}
+                        {options.length === 0 && (
+                          <p className="text-xs text-amber-700 mt-1">
+                            No trainers tagged for {trade}. Add trade tags on the Trainers page first.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              className="px-4 py-2 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              Create Batch
+            </button>
+          </div>
+        </form>
       )}
 
-      {/* Batch grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {batches.map((batch) => {
           const stats = getBatchStats(batch.id);
-          const statusCfg = STATUS_CONFIG[batch.status];
-          const StatusIcon = statusCfg.icon;
-
+          const status = STATUS_CONFIG[batch.status];
+          const StatusIcon = status.icon;
           return (
             <button
               key={batch.id}
+              type="button"
               onClick={() => navigate(`/batches/${batch.id}`)}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-left hover:border-primary-200 hover:shadow-md transition-all group"
+              className="text-left bg-white rounded-xl border border-gray-100 shadow-sm p-5 hover:border-primary-200 hover:shadow-md transition-all"
             >
-              {/* Top row */}
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-900 text-sm truncate pr-2">{batch.name}</p>
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', TRADE_COLORS[batch.trade])}>
-                      {batch.trade}
-                    </span>
-                    <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1', statusCfg.color)}>
-                      <StatusIcon className="w-3 h-3" />
-                      {statusCfg.label}
-                    </span>
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Layers className="w-4 h-4 text-primary-600 shrink-0" />
+                    <h3 className="font-bold text-gray-900 truncate">{batch.name}</h3>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {batch.trades.map((t) => (
+                      <span key={t.trade} className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', TRADE_COLORS[t.trade])}>
+                        {t.trade}
+                      </span>
+                    ))}
+                    {!batch.trades.length && (
+                      <span className="text-[10px] text-gray-400">No trades assigned</span>
+                    )}
                   </div>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-primary-400 shrink-0 mt-1 transition-colors" />
+                <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0', status.color)}>
+                  <StatusIcon className="w-3 h-3" />
+                  {status.label}
+                </span>
               </div>
-
-              {/* Meta info */}
-              <div className="space-y-1.5 mb-3">
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <User className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                  <span className="truncate">{batch.trainerName}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <Calendar className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                  <span>
-                    {formatDate(batch.startDate)}
-                    {batch.endDate ? ` – ${formatDate(batch.endDate)}` : ' – Ongoing'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <DollarSign className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                  <span>{formatCurrency(batch.budgetAllocated)}</span>
-                </div>
+              <div className="space-y-1.5 text-xs text-gray-500">
+                <p className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />{formatDate(batch.startDate)}</p>
+                <p className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />{stats.enrolled} enrolled · target {batch.targetEnrollment}</p>
+                <p className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" />{formatCurrency(batch.budgetAllocated)}</p>
+                <p className="truncate">Trainers: {formatBatchTrainers(batch.trades)}</p>
               </div>
-
-              {/* Stats row */}
-              <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
-                <div className="flex-1 text-center">
-                  <p className="text-lg font-bold text-primary-600">{stats.total}</p>
-                  <p className="text-[10px] text-gray-400">Trainees</p>
-                </div>
-                <div className="w-px h-8 bg-gray-100" />
-                {batch.status === 'active' ? (
-                  <div className="flex-1 text-center">
-                    <p className="text-lg font-bold text-green-600">{stats.enrolled}</p>
-                    <p className="text-[10px] text-gray-400">Enrolled</p>
-                  </div>
-                ) : (
-                  <div className="flex-1 text-center">
-                    <p className="text-lg font-bold text-green-600">{stats.gradRate}%</p>
-                    <p className="text-[10px] text-gray-400">Grad Rate</p>
-                  </div>
-                )}
-                <div className="w-px h-8 bg-gray-100" />
-                <div className="flex-1 text-center">
-                  <p className="text-lg font-bold text-gray-700">{batch.targetEnrollment}</p>
-                  <p className="text-[10px] text-gray-400">Target</p>
-                </div>
+              <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between text-xs text-primary-600 font-medium">
+                <span>{formatBatchTrades(batch.trades)}</span>
+                <ChevronRight className="w-4 h-4" />
               </div>
             </button>
           );
         })}
       </div>
+
+      {batches.length === 0 && (
+        <div className="text-center py-16 text-gray-500 text-sm">
+          No batches yet. {mayEdit ? 'Create one to start enrolling trainees.' : 'Ask an admin to create a batch.'}
+        </div>
+      )}
     </div>
   );
 }

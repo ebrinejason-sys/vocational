@@ -19,6 +19,7 @@ import Financials from './pages/Financials';
 import Graduation from './pages/Graduation';
 import Alumni from './pages/Alumni';
 import AdminStaff from './pages/AdminStaff';
+import Trainers from './pages/Trainers';
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="financials" element={<RequireRole roles={rolesWithAccess('financials')}><Financials /></RequireRole>} />
             <Route path="graduation" element={<RequireRole roles={rolesWithAccess('graduation')}><Graduation /></RequireRole>} />
             <Route path="alumni" element={<RequireRole roles={rolesWithAccess('alumni')}><Alumni /></RequireRole>} />
+            <Route path="trainers" element={<RequireRole roles={rolesWithAccess('batches')}><Trainers /></RequireRole>} />
             <Route path="admin/staff" element={<RequireRole roles={['admin']}><AdminStaff /></RequireRole>} />
             <Route path="more" element={<div className="p-6 text-gray-500 text-sm">Settings coming soon</div>} />
           </Route>

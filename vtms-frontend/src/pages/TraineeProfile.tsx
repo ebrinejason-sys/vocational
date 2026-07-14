@@ -242,7 +242,7 @@ export default function TraineeProfile() {
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mt-1">
               {batch && (
-                <span className="font-medium text-gray-700">{batch.name} · {batch.trade}</span>
+                <span className="font-medium text-gray-700">{batch.name} · {trainee.trade}</span>
               )}
               <span className="flex items-center gap-1">
                 <Phone className="w-3.5 h-3.5" />
@@ -284,8 +284,11 @@ export default function TraineeProfile() {
           <div className="mt-4 pt-3 border-t border-gray-50">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Batch Info</p>
             <InfoRow label="Batch" value={batch?.name} />
-            <InfoRow label="Trade" value={batch?.trade} />
-            <InfoRow label="Trainer" value={batch?.trainerName} />
+            <InfoRow label="Trade" value={trainee.trade} />
+            <InfoRow
+              label="Trainer"
+              value={batch?.trades.find((x) => x.trade === trainee.trade)?.trainerName || '—'}
+            />
           </div>
         </InfoCard>
 

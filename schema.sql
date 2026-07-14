@@ -53,21 +53,36 @@ CREATE TABLE trades (
 CREATE TABLE batches (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL, -- e.g., "Batch 5 - 2024"
-    trade TEXT NOT NULL CHECK (trade IN ('Carpentry','Tailoring','Masonry','Electricity')),
     start_date DATE NOT NULL,
     end_date DATE,
     status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','active','completed','archived')),
     budget_allocated DECIMAL(12,2) DEFAULT 0,
     target_enrollment INTEGER,
-    trainer_name TEXT NOT NULL,
     description TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Which trades each trainer profile teaches (many trainers per trade allowed).
+CREATE TABLE profile_trades (
+    profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    trade TEXT NOT NULL CHECK (trade IN ('Carpentry','Tailoring','Masonry','Electricity')),
+    PRIMARY KEY (profile_id, trade)
+);
+
+-- Trades offered in a batch + assigned trainer (login profile).
+CREATE TABLE batch_trades (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    batch_id UUID NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+    trade TEXT NOT NULL CHECK (trade IN ('Carpentry','Tailoring','Masonry','Electricity')),
+    trainer_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    UNIQUE (batch_id, trade)
 );
 
 -- 3. TRAINEE MANAGEMENT
 CREATE TABLE trainees (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     batch_id UUID REFERENCES batches(id),
+    trade TEXT CHECK (trade IS NULL OR trade IN ('Carpentry','Tailoring','Masonry','Electricity')),
     first_name TEXT NOT NULL,
     last_name TEXT NOT NULL,
     date_of_birth DATE,
@@ -266,7 +281,15 @@ GROUP BY b.id, b.name;
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY profiles_select ON profiles FOR SELECT
-  USING (id = auth.uid() OR current_role_is(ARRAY['director','admin']::user_role[]));
+  USING (
+    id = auth.uid()
+    OR current_role_is(ARRAY['director','admin']::user_role[])
+    OR (
+      role = 'trainer'
+      AND active
+      AND current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[])
+    )
+  );
 CREATE POLICY profiles_insert ON profiles FOR INSERT
   WITH CHECK (current_role_is(ARRAY['admin']::user_role[]));
 CREATE POLICY profiles_update ON profiles FOR UPDATE
@@ -275,7 +298,18 @@ CREATE POLICY profiles_update ON profiles FOR UPDATE
 CREATE POLICY profiles_delete ON profiles FOR DELETE
   USING (current_role_is(ARRAY['admin']::user_role[]));
 
--- Bucket A: batches, trades — view: all 5 roles, edit: trainer/case_worker/director/admin
+ALTER TABLE profile_trades ENABLE ROW LEVEL SECURITY;
+CREATE POLICY profile_trades_select ON profile_trades FOR SELECT
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','logistics_officer','director','admin']::user_role[]));
+CREATE POLICY profile_trades_insert ON profile_trades FOR INSERT
+  WITH CHECK (current_role_is(ARRAY['director','admin']::user_role[]));
+CREATE POLICY profile_trades_update ON profile_trades FOR UPDATE
+  USING (current_role_is(ARRAY['director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['director','admin']::user_role[]));
+CREATE POLICY profile_trades_delete ON profile_trades FOR DELETE
+  USING (current_role_is(ARRAY['director','admin']::user_role[]));
+
+-- Bucket A: batches, trades — view: all operational roles, edit: trainer/case_worker/PC/director/admin
 ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 CREATE POLICY batches_select ON batches FOR SELECT
   USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','logistics_officer','director','admin']::user_role[]));
@@ -286,6 +320,17 @@ CREATE POLICY batches_update ON batches FOR UPDATE
   WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 CREATE POLICY batches_delete ON batches FOR DELETE
   USING (current_role_is(ARRAY['admin']::user_role[]));
+
+ALTER TABLE batch_trades ENABLE ROW LEVEL SECURITY;
+CREATE POLICY batch_trades_select ON batch_trades FOR SELECT
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','logistics_officer','director','admin']::user_role[]));
+CREATE POLICY batch_trades_insert ON batch_trades FOR INSERT
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+CREATE POLICY batch_trades_update ON batch_trades FOR UPDATE
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+CREATE POLICY batch_trades_delete ON batch_trades FOR DELETE
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 
 ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
 CREATE POLICY trades_select ON trades FOR SELECT

@@ -42,9 +42,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { email, fullName, role } = (req.body ?? {}) as { email?: string; fullName?: string; role?: string };
+  const { email, fullName, role, trades } = (req.body ?? {}) as {
+    email?: string;
+    fullName?: string;
+    role?: string;
+    trades?: string[];
+  };
   if (!email || !fullName || !role || !ALLOWED_ROLES.includes(role as Role)) {
     res.status(400).json({ error: 'email, fullName, and a valid role are required' });
+    return;
+  }
+
+  const TRADE_VALUES = ['Carpentry', 'Tailoring', 'Masonry', 'Electricity'] as const;
+  const trainerTrades = role === 'trainer'
+    ? (trades ?? []).filter((t): t is (typeof TRADE_VALUES)[number] =>
+        TRADE_VALUES.includes(t as (typeof TRADE_VALUES)[number]))
+    : [];
+  if (role === 'trainer' && trainerTrades.length === 0) {
+    res.status(400).json({ error: 'Trainers need at least one trade assigned' });
     return;
   }
 
@@ -78,6 +93,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await admin.auth.admin.deleteUser(invited.user.id).catch(() => {});
     res.status(500).json({ error: insertError.message });
     return;
+  }
+
+  if (trainerTrades.length) {
+    const { error: tradesError } = await admin.from('profile_trades').insert(
+      trainerTrades.map((trade) => ({ profile_id: invited.user!.id, trade }))
+    );
+    if (tradesError) {
+      await admin.from('profiles').delete().eq('id', invited.user.id).catch(() => {});
+      await admin.auth.admin.deleteUser(invited.user.id).catch(() => {});
+      res.status(500).json({ error: tradesError.message });
+      return;
+    }
   }
 
   res.status(200).json({ ok: true });

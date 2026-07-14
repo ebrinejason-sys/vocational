@@ -2,10 +2,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
 import type {
-  Batch, Trainee, Module, CompetencyAssessment, AttendanceRecord,
+  Batch, BatchTradeAssignment, Trainee, Module, CompetencyAssessment, AttendanceRecord,
   CaseNote, InventoryItem, InventoryUsage, ProcurementRequest,
   ProductionLog, Sale, FinancialTransaction, StarterKit,
-  AlumniFollowUp, JobPlacement,
+  AlumniFollowUp, JobPlacement, TradeType,
 } from '../types';
 import {
   SEED_MODULES, SEED_COMPETENCY_ASSESSMENTS,
@@ -17,43 +17,64 @@ import {
 // ---- Supabase row <-> app-model mapping (batches & trainees only —
 // the other 12 domains stay local-seeded this phase) ----
 
+interface BatchTradeRow {
+  id?: string;
+  trade: string;
+  trainer_id: string | null;
+  profiles?: { full_name: string } | null;
+}
+
 interface BatchRow {
-  id: string; name: string; trade: string; start_date: string; end_date: string | null;
-  status: string; budget_allocated: string | number; target_enrollment: number;
-  trainer_name: string; description: string | null;
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string | null;
+  status: string;
+  budget_allocated: string | number;
+  target_enrollment: number;
+  description: string | null;
+  batch_trades?: BatchTradeRow[] | null;
+}
+
+function mapBatchTrades(rows: BatchTradeRow[] | null | undefined): BatchTradeAssignment[] {
+  return (rows ?? []).map((r) => ({
+    trade: r.trade as TradeType,
+    trainerId: r.trainer_id,
+    trainerName: r.profiles?.full_name ?? '',
+  }));
 }
 
 function batchFromRow(row: BatchRow): Batch {
   return {
     id: row.id,
     name: row.name,
-    trade: row.trade as Batch['trade'],
+    trades: mapBatchTrades(row.batch_trades),
     startDate: row.start_date,
     endDate: row.end_date,
     status: row.status as Batch['status'],
     budgetAllocated: Number(row.budget_allocated),
     targetEnrollment: row.target_enrollment,
-    trainerName: row.trainer_name,
     description: row.description ?? '',
   };
 }
 
-function batchToRow(b: Omit<Batch, 'id'>) {
+function batchCoreToRow(b: Omit<Batch, 'id' | 'trades'>) {
   return {
     name: b.name,
-    trade: b.trade,
     start_date: b.startDate,
     end_date: b.endDate,
     status: b.status,
     budget_allocated: b.budgetAllocated,
     target_enrollment: b.targetEnrollment,
-    trainer_name: b.trainerName,
     description: b.description,
   };
 }
 
+const BATCH_SELECT = '*, batch_trades(id, trade, trainer_id, profiles:trainer_id(full_name))';
+
 interface TraineeRow {
-  id: string; batch_id: string; first_name: string; last_name: string; date_of_birth: string;
+  id: string; batch_id: string; trade: string | null;
+  first_name: string; last_name: string; date_of_birth: string;
   gender: string; phone_number: string; address: string; emergency_contact_name: string;
   emergency_contact_phone: string; mobilization_source: string; vulnerability_score: number;
   vulnerability_assessment: Trainee['vulnerabilityAssessment'] | null;
@@ -64,6 +85,7 @@ function traineeFromRow(row: TraineeRow): Trainee {
   return {
     id: row.id,
     batchId: row.batch_id,
+    trade: (row.trade ?? 'Carpentry') as TradeType,
     firstName: row.first_name,
     lastName: row.last_name,
     dateOfBirth: row.date_of_birth,
@@ -84,12 +106,20 @@ function traineeFromRow(row: TraineeRow): Trainee {
   };
 }
 
+/** PostgREST rejects "" for uuid/date columns with HTTP 400 — coerce blanks to null. */
+function emptyToNull(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 function traineeToRow(t: Omit<Trainee, 'id' | 'photo'>) {
   return {
-    batch_id: t.batchId,
+    batch_id: emptyToNull(t.batchId),
+    trade: t.trade,
     first_name: t.firstName,
     last_name: t.lastName,
-    date_of_birth: t.dateOfBirth,
+    date_of_birth: emptyToNull(t.dateOfBirth),
     gender: t.gender,
     phone_number: t.phone,
     address: t.address,
@@ -99,7 +129,7 @@ function traineeToRow(t: Omit<Trainee, 'id' | 'photo'>) {
     vulnerability_score: t.vulnerabilityScore,
     vulnerability_assessment: t.vulnerabilityAssessment,
     status: t.status,
-    graduation_date: t.graduationDate,
+    graduation_date: emptyToNull(t.graduationDate),
   };
 }
 
@@ -166,7 +196,7 @@ export const useStore = create<VTMSState>()(
 
       fetchInitialData: async () => {
         const [batchResult, traineeResult] = await Promise.all([
-          supabase.from('batches').select('*').order('start_date', { ascending: false }),
+          supabase.from('batches').select(BATCH_SELECT).order('start_date', { ascending: false }),
           supabase.from('trainees').select('*'),
         ]);
 
@@ -188,9 +218,28 @@ export const useStore = create<VTMSState>()(
       setActiveBatch: (id) => set({ activeBatchId: id }),
 
       addBatch: async (b) => {
-        const { data, error } = await supabase.from('batches').insert(batchToRow(b)).select().single();
+        if (!b.trades.length) throw new Error('Select at least one trade for the batch.');
+        const { data, error } = await supabase.from('batches').insert(batchCoreToRow(b)).select('id').single();
         if (error) throw error;
-        const batch = batchFromRow(data as BatchRow);
+        const batchId = data.id as string;
+        const { error: tradesError } = await supabase.from('batch_trades').insert(
+          b.trades.map((t) => ({
+            batch_id: batchId,
+            trade: t.trade,
+            trainer_id: emptyToNull(t.trainerId),
+          }))
+        );
+        if (tradesError) {
+          await supabase.from('batches').delete().eq('id', batchId);
+          throw tradesError;
+        }
+        const { data: full, error: reloadError } = await supabase
+          .from('batches')
+          .select(BATCH_SELECT)
+          .eq('id', batchId)
+          .single();
+        if (reloadError) throw reloadError;
+        const batch = batchFromRow(full as BatchRow);
         set((s) => ({ batches: [...s.batches, batch] }));
       },
 
@@ -198,13 +247,46 @@ export const useStore = create<VTMSState>()(
         const current = get().batches.find((b) => b.id === id);
         if (!current) throw new Error(`Batch ${id} not found`);
         const merged = { ...current, ...updates };
-        const { data, error } = await supabase.from('batches').update(batchToRow(merged)).eq('id', id).select().single();
+        const { error } = await supabase.from('batches').update(batchCoreToRow(merged)).eq('id', id);
         if (error) throw error;
-        const batch = batchFromRow(data as BatchRow);
+        if (updates.trades) {
+          const { error: delError } = await supabase.from('batch_trades').delete().eq('batch_id', id);
+          if (delError) throw delError;
+          if (updates.trades.length) {
+            const { error: insError } = await supabase.from('batch_trades').insert(
+              updates.trades.map((t) => ({
+                batch_id: id,
+                trade: t.trade,
+                trainer_id: emptyToNull(t.trainerId),
+              }))
+            );
+            if (insError) throw insError;
+          }
+        }
+        const { data: full, error: reloadError } = await supabase
+          .from('batches')
+          .select(BATCH_SELECT)
+          .eq('id', id)
+          .single();
+        if (reloadError) throw reloadError;
+        const batch = batchFromRow(full as BatchRow);
         set((s) => ({ batches: s.batches.map((b) => (b.id === id ? batch : b)) }));
       },
 
       addTrainee: async (t) => {
+        if (!t.batchId?.trim()) {
+          throw new Error('Select a batch before registering a trainee.');
+        }
+        const batch = get().batches.find((b) => b.id === t.batchId);
+        if (!batch) {
+          throw new Error('That batch no longer exists. Pick a current batch and try again.');
+        }
+        if (!t.trade || !batch.trades.some((x) => x.trade === t.trade)) {
+          throw new Error('Select a trade offered in this batch.');
+        }
+        if (!t.dateOfBirth?.trim()) {
+          throw new Error('Date of birth is required.');
+        }
         const { data, error } = await supabase.from('trainees').insert(traineeToRow(t)).select().single();
         if (error) throw error;
         const trainee = traineeFromRow(data as TraineeRow);
