@@ -2,19 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, X, Layers, Calendar, DollarSign, Users,
-  GraduationCap, ChevronRight, CheckCircle, Clock, Archive,
+  GraduationCap, ChevronRight, CheckCircle, Clock, Archive, PauseCircle,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { cn, formatCurrency, formatDate, friendlyError, formatBatchTrades, formatBatchTrainers } from '../lib/utils';
-import { TRADE_OPTIONS, type TradeType } from '../types';
+import { TRADE_OPTIONS, type TradeType, type BatchStatus } from '../types';
 import { supabase } from '../lib/supabase';
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<BatchStatus, { label: string; color: string; icon: typeof CheckCircle }> = {
   active: { label: 'Active', color: 'bg-green-100 text-green-700', icon: CheckCircle },
   completed: { label: 'Completed', color: 'bg-blue-100 text-blue-700', icon: GraduationCap },
   planned: { label: 'Planned', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  paused: { label: 'Paused', color: 'bg-orange-100 text-orange-700', icon: PauseCircle },
   archived: { label: 'Archived', color: 'bg-gray-100 text-gray-500', icon: Archive },
 };
 

@@ -49,6 +49,7 @@ function computeVulnerabilityScore(a: VulnerabilityAssessment): number {
 const STATUS_COLORS: Record<TraineeStatus, string> = {
   prospect: 'bg-gray-100 text-gray-600',
   enrolled: 'bg-sky-100 text-sky-700',
+  paused: 'bg-orange-100 text-orange-700',
   graduated: 'bg-green-100 text-green-700',
   dropped: 'bg-red-100 text-red-600',
   alumni: 'bg-purple-100 text-purple-700',
