@@ -1,21 +1,27 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, User, Phone, MapPin, AlertCircle, Calendar,
   BookOpen, ClipboardList, MessageSquare, Briefcase, Home,
   Utensils, GraduationCap, Heart, Accessibility,
+  Pencil, PauseCircle, PlayCircle, Trash2,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, formatDate, getVulnerabilityLabel, getAttendanceRate } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
+import { canEdit } from '../lib/permissions';
+import { cn, formatDate, getVulnerabilityLabel, getAttendanceRate, friendlyError } from '../lib/utils';
+import { countTraineeDependencies } from '../lib/deleteGuards';
+import { formatDependencyBlock } from '../lib/lifecycle';
+import Modal from '../components/Modal';
 import { COMPETENCY_LEVEL_LABELS, CASE_CATEGORY_LABELS } from '../types';
-import type { TraineeStatus, CompetencyLevel } from '../types';
+import type { TraineeStatus, CompetencyLevel, TradeType } from '../types';
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<TraineeStatus, string> = {
   prospect: 'bg-gray-100 text-gray-600',
   enrolled: 'bg-sky-100 text-sky-700',
-  paused: 'bg-orange-100 text-orange-700',
+  paused: 'bg-amber-100 text-amber-800',
   graduated: 'bg-green-100 text-green-700',
   dropped: 'bg-red-100 text-red-600',
   alumni: 'bg-purple-100 text-purple-700',
@@ -105,15 +111,44 @@ const STARTER_KIT_LABELS: Record<string, string> = {
   not_issued: 'Not Issued',
 };
 
+interface EditForm {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  address: string;
+  emergencyContact: string;
+  emergencyPhone: string;
+  batchId: string;
+  trade: TradeType;
+  status: TraineeStatus;
+  dateOfBirth: string;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function TraineeProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const {
     trainees, batches, competencyAssessments, modules,
     attendanceRecords, caseNotes, alumniFollowUps, jobPlacements,
+    updateTrainee, pauseTrainee, resumeTrainee, deleteTrainee,
   } = useStore();
+
+  const mayEdit = profile ? canEdit(profile.role, 'trainees') : false;
+
+  const [showEdit, setShowEdit] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteCounts, setDeleteCounts] = useState<Record<string, number> | null>(null);
+  const [deleteBlocked, setDeleteBlocked] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const trainee = useMemo(() => trainees.find((t) => t.id === id), [trainees, id]);
 
@@ -189,8 +224,10 @@ export default function TraineeProfile() {
     );
   }
 
-  const { label: vLabel, color: vColor } = getVulnerabilityLabel(trainee.vulnerabilityScore);
-  const va = trainee.vulnerabilityAssessment;
+  const currentTrainee = trainee;
+
+  const { label: vLabel, color: vColor } = getVulnerabilityLabel(currentTrainee.vulnerabilityScore);
+  const va = currentTrainee.vulnerabilityAssessment;
 
   // Vulnerability factor rows
   const vulnFactors = [
@@ -212,6 +249,124 @@ export default function TraineeProfile() {
   const lateDays = myAttendance.filter((r) => r.status === 'late').length;
   const absentDays = myAttendance.filter((r) => r.status === 'absent').length;
   const excusedDays = myAttendance.filter((r) => r.status === 'excused').length;
+
+  const inputCls =
+    'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white';
+
+  const editBatch = editForm ? batches.find((b) => b.id === editForm.batchId) : null;
+  const editTradeOptions = editBatch?.trades ?? [];
+
+  function openEdit() {
+    setEditError(null);
+    setEditForm({
+      firstName: currentTrainee.firstName,
+      lastName: currentTrainee.lastName,
+      phone: currentTrainee.phone,
+      address: currentTrainee.address,
+      emergencyContact: currentTrainee.emergencyContact,
+      emergencyPhone: currentTrainee.emergencyPhone,
+      batchId: currentTrainee.batchId,
+      trade: currentTrainee.trade,
+      status: currentTrainee.status,
+      dateOfBirth: currentTrainee.dateOfBirth,
+    });
+    setShowEdit(true);
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editForm) return;
+    setEditError(null);
+    if (!editForm.firstName.trim() || !editForm.lastName.trim()) {
+      setEditError('First and last name are required.');
+      return;
+    }
+    if (!editForm.batchId) {
+      setEditError('Select a batch.');
+      return;
+    }
+    if (!editForm.trade || !editTradeOptions.some((t) => t.trade === editForm.trade)) {
+      setEditError('Select a trade offered in this batch.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateTrainee(currentTrainee.id, {
+        firstName: editForm.firstName.trim(),
+        lastName: editForm.lastName.trim(),
+        phone: editForm.phone.trim(),
+        address: editForm.address.trim(),
+        emergencyContact: editForm.emergencyContact.trim(),
+        emergencyPhone: editForm.emergencyPhone.trim(),
+        batchId: editForm.batchId,
+        trade: editForm.trade,
+        status: editForm.status,
+        dateOfBirth: editForm.dateOfBirth,
+      });
+      setShowEdit(false);
+    } catch (err) {
+      setEditError(friendlyError(err, 'Failed to update trainee.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePause() {
+    setLifecycleError(null);
+    setLifecycleLoading(true);
+    try {
+      await pauseTrainee(currentTrainee.id);
+    } catch (err) {
+      setLifecycleError(friendlyError(err, 'Failed to pause trainee.'));
+    } finally {
+      setLifecycleLoading(false);
+    }
+  }
+
+  async function handleResume() {
+    setLifecycleError(null);
+    setLifecycleLoading(true);
+    try {
+      await resumeTrainee(currentTrainee.id);
+    } catch (err) {
+      setLifecycleError(friendlyError(err, 'Failed to resume trainee.'));
+    } finally {
+      setLifecycleLoading(false);
+    }
+  }
+
+  async function openDelete() {
+    setDeleteError(null);
+    setDeleteCounts(null);
+    setDeleteBlocked(false);
+    setShowDelete(true);
+    setDeleteLoading(true);
+    try {
+      const counts = await countTraineeDependencies(currentTrainee.id);
+      setDeleteCounts(counts);
+      setDeleteBlocked(Object.values(counts).some((n) => n > 0));
+    } catch (err) {
+      setDeleteError(friendlyError(err, 'Failed to check dependencies.'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (deleteBlocked) return;
+    setDeleteError(null);
+    setDeleteLoading(true);
+    try {
+      await deleteTrainee(currentTrainee.id);
+      navigate('/trainees');
+    } catch (err) {
+      setDeleteError(friendlyError(err, 'Failed to delete trainee.'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  const traineeLabel = `${currentTrainee.firstName} ${currentTrainee.lastName}`;
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -261,8 +416,57 @@ export default function TraineeProfile() {
               </p>
             )}
           </div>
+          {mayEdit && (
+            <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={openEdit}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </button>
+              {(trainee.status === 'enrolled' || trainee.status === 'prospect') && (
+                <button
+                  type="button"
+                  onClick={handlePause}
+                  disabled={lifecycleLoading}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-amber-200 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                >
+                  <PauseCircle className="w-4 h-4" />
+                  Pause
+                </button>
+              )}
+              {trainee.status === 'paused' && (
+                <button
+                  type="button"
+                  onClick={handleResume}
+                  disabled={lifecycleLoading}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-green-200 text-green-800 hover:bg-green-50 disabled:opacity-60"
+                >
+                  <PlayCircle className="w-4 h-4" />
+                  Resume
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={openDelete}
+                disabled={lifecycleLoading}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {lifecycleError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {lifecycleError}
+        </div>
+      )}
 
       {/* ── Row: Personal + Emergency + Mobilization ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -527,6 +731,201 @@ export default function TraineeProfile() {
             )}
           </InfoCard>
         </div>
+      )}
+
+      {showEdit && editForm && (
+        <Modal title={`Edit ${traineeLabel}`} onClose={() => setShowEdit(false)} size="lg">
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">First name *</label>
+                <input
+                  required
+                  className={inputCls}
+                  value={editForm.firstName}
+                  onChange={(e) => setEditForm({ ...editForm, firstName: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Last name *</label>
+                <input
+                  required
+                  className={inputCls}
+                  value={editForm.lastName}
+                  onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Date of birth *</label>
+                <input
+                  type="date"
+                  required
+                  className={inputCls}
+                  value={editForm.dateOfBirth}
+                  onChange={(e) => setEditForm({ ...editForm, dateOfBirth: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Status *</label>
+                <select
+                  className={inputCls}
+                  value={editForm.status}
+                  onChange={(e) => setEditForm({ ...editForm, status: e.target.value as TraineeStatus })}
+                >
+                  <option value="prospect">Prospect</option>
+                  <option value="enrolled">Enrolled</option>
+                  <option value="paused">Paused</option>
+                  <option value="graduated">Graduated</option>
+                  <option value="dropped">Dropped</option>
+                  <option value="alumni">Alumni</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Phone *</label>
+                <input
+                  required
+                  className={inputCls}
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Batch *</label>
+                <select
+                  required
+                  disabled={editForm.status === 'paused'}
+                  className={cn(inputCls, editForm.status === 'paused' && 'bg-gray-50 text-gray-600')}
+                  value={editForm.batchId}
+                  onChange={(e) => {
+                    const batchId = e.target.value;
+                    const trades = batches.find((b) => b.id === batchId)?.trades ?? [];
+                    const trade = trades.some((t) => t.trade === editForm.trade)
+                      ? editForm.trade
+                      : (trades[0]?.trade ?? editForm.trade);
+                    setEditForm({ ...editForm, batchId, trade });
+                  }}
+                >
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}{b.status !== 'active' ? ` (${b.status})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {editForm.status === 'paused' && (
+                  <p className="text-[11px] text-gray-400 mt-1">Resume trainee before changing batch.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Trade *</label>
+                <select
+                  required
+                  className={inputCls}
+                  value={editForm.trade}
+                  onChange={(e) => setEditForm({ ...editForm, trade: e.target.value as TradeType })}
+                  disabled={!editTradeOptions.length}
+                >
+                  {!editTradeOptions.length && <option value="">No trades on this batch</option>}
+                  {editTradeOptions.map((t) => (
+                    <option key={t.trade} value={t.trade}>
+                      {t.trade}{t.trainerName ? ` — ${t.trainerName}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Address *</label>
+                <input
+                  required
+                  className={inputCls}
+                  value={editForm.address}
+                  onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Emergency contact *</label>
+                <input
+                  required
+                  className={inputCls}
+                  value={editForm.emergencyContact}
+                  onChange={(e) => setEditForm({ ...editForm, emergencyContact: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Emergency phone *</label>
+                <input
+                  required
+                  className={inputCls}
+                  value={editForm.emergencyPhone}
+                  onChange={(e) => setEditForm({ ...editForm, emergencyPhone: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {editError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{editError}</p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEdit(false)}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60"
+              >
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showDelete && (
+        <Modal title={`Delete ${traineeLabel}`} onClose={() => setShowDelete(false)}>
+          <div className="space-y-4">
+            {deleteLoading && !deleteCounts && (
+              <p className="text-sm text-gray-500">Checking linked records…</p>
+            )}
+            {deleteCounts && deleteBlocked && (
+              <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                {formatDependencyBlock(traineeLabel, deleteCounts)}
+              </p>
+            )}
+            {deleteCounts && !deleteBlocked && (
+              <p className="text-sm text-gray-600">
+                This permanently deletes <strong>{traineeLabel}</strong>.
+                This cannot be undone.
+              </p>
+            )}
+            {deleteError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {deleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDelete(false)}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteLoading || deleteBlocked || !deleteCounts}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleteLoading ? 'Deleting…' : 'Delete trainee'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

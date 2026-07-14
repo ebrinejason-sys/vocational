@@ -49,7 +49,7 @@ function computeVulnerabilityScore(a: VulnerabilityAssessment): number {
 const STATUS_COLORS: Record<TraineeStatus, string> = {
   prospect: 'bg-gray-100 text-gray-600',
   enrolled: 'bg-sky-100 text-sky-700',
-  paused: 'bg-orange-100 text-orange-700',
+  paused: 'bg-amber-100 text-amber-800',
   graduated: 'bg-green-100 text-green-700',
   dropped: 'bg-red-100 text-red-600',
   alumni: 'bg-purple-100 text-purple-700',
@@ -130,13 +130,16 @@ export function RegistrationForm({
   fixedBatchId?: string;
 }) {
   const { batches, activeBatchId, addTrainee } = useStore();
+  const registerableBatches = batches.filter(
+    (b) => b.status !== 'paused' && b.status !== 'completed' && b.status !== 'archived'
+  );
   const resolvedBatchId =
-    fixedBatchId && batches.some((b) => b.id === fixedBatchId)
+    fixedBatchId && registerableBatches.some((b) => b.id === fixedBatchId)
       ? fixedBatchId
-      : batches.some((b) => b.id === activeBatchId)
+      : registerableBatches.some((b) => b.id === activeBatchId)
         ? activeBatchId
-        : (batches[0]?.id ?? '');
-  const initialTrades = batches.find((b) => b.id === resolvedBatchId)?.trades ?? [];
+        : (registerableBatches[0]?.id ?? '');
+  const initialTrades = registerableBatches.find((b) => b.id === resolvedBatchId)?.trades ?? [];
   const [form, setForm] = useState<FormData>(() =>
     defaultForm(resolvedBatchId, initialTrades[0]?.trade ?? '')
   );
@@ -149,22 +152,22 @@ export function RegistrationForm({
 
   // Keep batch/trade valid after purge / batch list changes.
   React.useEffect(() => {
-    if (!batches.length) return;
+    if (!registerableBatches.length) return;
     setForm((prev) => {
       const batchId =
-        lockBatch && fixedBatchId && batches.some((b) => b.id === fixedBatchId)
+        lockBatch && fixedBatchId && registerableBatches.some((b) => b.id === fixedBatchId)
           ? fixedBatchId
-          : batches.some((b) => b.id === prev.batchId)
+          : registerableBatches.some((b) => b.id === prev.batchId)
             ? prev.batchId
             : resolvedBatchId;
-      const trades = batches.find((b) => b.id === batchId)?.trades ?? [];
+      const trades = registerableBatches.find((b) => b.id === batchId)?.trades ?? [];
       const trade = trades.some((t) => t.trade === prev.trade)
         ? prev.trade
         : (trades[0]?.trade ?? '');
       if (batchId === prev.batchId && trade === prev.trade) return prev;
       return { ...prev, batchId, trade };
     });
-  }, [batches, resolvedBatchId, fixedBatchId, lockBatch]);
+  }, [registerableBatches, resolvedBatchId, fixedBatchId, lockBatch]);
 
   const assessment: VulnerabilityAssessment = {
     housingStatus: form.housingStatus,
@@ -185,11 +188,11 @@ export function RegistrationForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitError(null);
-    if (!batches.length) {
-      setSubmitError('Create a batch first, then register trainees into it.');
+    if (!registerableBatches.length) {
+      setSubmitError('Create an active batch first, then register trainees into it.');
       return;
     }
-    if (!form.batchId || !batches.some((b) => b.id === form.batchId)) {
+    if (!form.batchId || !registerableBatches.some((b) => b.id === form.batchId)) {
       setSubmitError('Select a valid batch for this trainee.');
       return;
     }
@@ -237,8 +240,8 @@ export function RegistrationForm({
         <div className="flex gap-3">
           <button
             onClick={() => {
-              const trades = batches.find((b) => b.id === form.batchId)?.trades
-                ?? batches.find((b) => b.id === resolvedBatchId)?.trades
+              const trades = registerableBatches.find((b) => b.id === form.batchId)?.trades
+                ?? registerableBatches.find((b) => b.id === resolvedBatchId)?.trades
                 ?? [];
               setForm(defaultForm(form.batchId || resolvedBatchId, trades[0]?.trade ?? ''));
               setSubmitted(false);
@@ -300,7 +303,7 @@ export function RegistrationForm({
               value={form.batchId}
               onChange={(e) => {
                 const batchId = e.target.value;
-                const trades = batches.find((b) => b.id === batchId)?.trades ?? [];
+                const trades = registerableBatches.find((b) => b.id === batchId)?.trades ?? [];
                 setForm((prev) => ({
                   ...prev,
                   batchId,
@@ -308,8 +311,8 @@ export function RegistrationForm({
                 }));
               }}
             >
-              {batches.length === 0 && <option value="">No batches yet — create one first</option>}
-              {batches.map((b) => (
+              {registerableBatches.length === 0 && <option value="">No open batches — create or resume one first</option>}
+              {registerableBatches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}{b.trades.length ? ` (${b.trades.map((t) => t.trade).join(', ')})` : ''}
                 </option>
