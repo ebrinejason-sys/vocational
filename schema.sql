@@ -55,7 +55,7 @@ CREATE TABLE batches (
     name TEXT NOT NULL, -- e.g., "Batch 5 - 2024"
     start_date DATE NOT NULL,
     end_date DATE,
-    status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','active','completed','archived')),
+    status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','active','paused','completed','archived')),
     budget_allocated DECIMAL(12,2) DEFAULT 0,
     target_enrollment INTEGER,
     description TEXT DEFAULT '',
@@ -97,7 +97,7 @@ CREATE TABLE trainees (
     vulnerability_score INTEGER,
     vulnerability_assessment JSONB,
     vulnerability_notes TEXT,
-    status TEXT DEFAULT 'prospect' CHECK (status IN ('prospect','enrolled','graduated','dropped','alumni')),
+    status TEXT DEFAULT 'prospect' CHECK (status IN ('prospect','enrolled','paused','graduated','dropped','alumni')),
     graduation_date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -320,7 +320,7 @@ CREATE POLICY batches_update ON batches FOR UPDATE
   USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]))
   WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 CREATE POLICY batches_delete ON batches FOR DELETE
-  USING (current_role_is(ARRAY['admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 
 ALTER TABLE batch_trades ENABLE ROW LEVEL SECURITY;
 CREATE POLICY batch_trades_select ON batch_trades FOR SELECT
@@ -354,7 +354,7 @@ CREATE POLICY trainees_update ON trainees FOR UPDATE
   USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]))
   WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 CREATE POLICY trainees_delete ON trainees FOR DELETE
-  USING (current_role_is(ARRAY['admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 
 -- Bucket C: attendance, competency_assessments, modules — view: trainer/case_worker/director/admin, edit: trainer/admin
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;

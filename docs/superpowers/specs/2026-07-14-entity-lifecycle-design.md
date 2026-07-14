@@ -74,6 +74,8 @@ prospect | enrolled | paused | graduated | dropped | alumni
 
 ### Trainers (profiles)
 
+Implementation uses existing `profiles.active` instead of adding `is_active`.
+
 ```sql
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
