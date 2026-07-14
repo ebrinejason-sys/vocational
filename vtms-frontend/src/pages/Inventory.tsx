@@ -109,7 +109,7 @@ export default function Inventory() {
     }));
   }
 
-  function handleAddItem(e: React.FormEvent) {
+  async function handleAddItem(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
     if (!itemForm.name.trim()) {
@@ -123,22 +123,26 @@ export default function Inventory() {
       setFormError('Enter valid numbers for quantity, reorder level, and unit cost.');
       return;
     }
-    addInventoryItem({
-      name: itemForm.name.trim(),
-      category: itemForm.category,
-      unit: itemForm.unit.trim() || 'pcs',
-      quantityOnHand: qty,
-      reorderLevel: reorder,
-      unitCost: cost,
-      tradeRelevance: itemForm.tradeRelevance,
-    });
-    setItemForm(EMPTY_ITEM);
-    setShowAddItem(false);
-    setBanner('Item added to inventory.');
-    setTimeout(() => setBanner(null), 3000);
+    try {
+      await addInventoryItem({
+        name: itemForm.name.trim(),
+        category: itemForm.category,
+        unit: itemForm.unit.trim() || 'pcs',
+        quantityOnHand: qty,
+        reorderLevel: reorder,
+        unitCost: cost,
+        tradeRelevance: itemForm.tradeRelevance,
+      });
+      setItemForm(EMPTY_ITEM);
+      setShowAddItem(false);
+      setBanner('Item added to inventory.');
+      setTimeout(() => setBanner(null), 3000);
+    } catch (err) {
+      setFormError(friendlyError(err, 'Failed to add inventory item.'));
+    }
   }
 
-  function handleReceive(e: React.FormEvent) {
+  async function handleReceive(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
     const item = inventoryItems.find((i) => i.id === receiveForm.itemId);
@@ -151,14 +155,18 @@ export default function Inventory() {
       setFormError('Enter a valid quantity to receive.');
       return;
     }
-    updateInventoryItem(item.id, { quantityOnHand: item.quantityOnHand + qty });
-    setReceiveForm(EMPTY_RECEIVE);
-    setShowReceive(false);
-    setBanner(`Received ${qty} ${item.unit} of ${item.name}.`);
-    setTimeout(() => setBanner(null), 3000);
+    try {
+      await updateInventoryItem(item.id, { quantityOnHand: item.quantityOnHand + qty });
+      setReceiveForm(EMPTY_RECEIVE);
+      setShowReceive(false);
+      setBanner(`Received ${qty} ${item.unit} of ${item.name}.`);
+      setTimeout(() => setBanner(null), 3000);
+    } catch (err) {
+      setFormError(friendlyError(err, 'Failed to receive stock.'));
+    }
   }
 
-  function handleLogUsage(e: React.FormEvent) {
+  async function handleLogUsage(e: React.FormEvent) {
     e.preventDefault();
     const errors: Partial<UsageForm> = {};
     if (!usageForm.itemId) errors.itemId = 'Select an item';
@@ -174,7 +182,7 @@ export default function Inventory() {
     if (Object.keys(errors).length) return;
 
     try {
-      logInventoryUsage({
+      await logInventoryUsage({
         itemId: usageForm.itemId,
         batchId: usageForm.batchId,
         traineeId: null,

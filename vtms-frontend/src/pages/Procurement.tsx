@@ -6,8 +6,7 @@ import {
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
-import { cn, formatCurrency, formatDate, generateId, today } from '../lib/utils';
-import type { ProcurementRequest } from '../types';
+import { cn, formatCurrency, formatDate, friendlyError } from '../lib/utils';
 import Modal from '../components/Modal';
 
 const STATUS_CONFIG = {
@@ -40,6 +39,7 @@ export default function Procurement() {
   const [form, setForm] = useState<ProcForm>(EMPTY);
   const [errors, setErrors] = useState<Partial<ProcForm>>({});
   const [banner, setBanner] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const selectedItem = inventoryItems.find((i) => i.id === form.itemId);
   const pending = useMemo(
@@ -65,39 +65,52 @@ export default function Procurement() {
     return Object.keys(next).length === 0;
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate()) return;
-    const item = inventoryItems.find((i) => i.id === form.itemId)!;
-    const request: ProcurementRequest = {
-      id: generateId(),
-      itemId: form.itemId,
-      itemName: item.name,
-      quantityRequested: Number(form.quantityRequested),
-      estimatedCost: Number(form.estimatedCost || autoCost),
-      status: 'pending',
-      requestedBy: profile?.fullName ?? 'Staff',
-      createdAt: today(),
-    };
-    addProcurementRequest(request);
-    setForm(EMPTY);
-    setShowForm(false);
-    setBanner('Procurement request submitted.');
-    setTimeout(() => setBanner(null), 3000);
+    setActionError(null);
+    try {
+      await addProcurementRequest({
+        itemId: form.itemId,
+        quantityRequested: Number(form.quantityRequested),
+        estimatedCost: Number(form.estimatedCost || autoCost),
+      });
+      setForm(EMPTY);
+      setShowForm(false);
+      setBanner('Procurement request submitted.');
+      setTimeout(() => setBanner(null), 3000);
+    } catch (err) {
+      setActionError(friendlyError(err, 'Failed to submit procurement request.'));
+    }
   }
 
-  function markApproved(id: string) {
-    updateProcurementRequest(id, { status: 'approved' });
+  async function markApproved(id: string) {
+    setActionError(null);
+    try {
+      await updateProcurementRequest(id, { status: 'approved' });
+    } catch (err) {
+      setActionError(friendlyError(err, 'Failed to approve request.'));
+    }
   }
 
-  function markCancelled(id: string) {
-    updateProcurementRequest(id, { status: 'cancelled' });
+  async function markCancelled(id: string) {
+    setActionError(null);
+    try {
+      await updateProcurementRequest(id, { status: 'cancelled' });
+    } catch (err) {
+      setActionError(friendlyError(err, 'Failed to cancel request.'));
+    }
   }
 
-  function markPurchased(id: string) {
-    fulfillProcurementRequest(id);
-    setBanner('Marked purchased — stock received into inventory.');
-    setTimeout(() => setBanner(null), 3500);
+  async function markPurchased(id: string) {
+    setActionError(null);
+    try {
+      await fulfillProcurementRequest(id);
+      setBanner('Marked purchased — stock received into inventory.');
+      setTimeout(() => setBanner(null), 3500);
+    } catch (err) {
+      setActionError(friendlyError(err, 'Failed to mark purchased.'));
+    }
   }
 
   const inputCls =
@@ -142,6 +155,12 @@ export default function Procurement() {
         <p className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" />
           {banner}
+        </p>
+      )}
+
+      {actionError && (
+        <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          {actionError}
         </p>
       )}
 

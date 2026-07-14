@@ -165,11 +165,12 @@ CREATE TABLE case_notes (
 CREATE TABLE inventory_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
-    category TEXT, -- Tool, Material, Equipment
+    category TEXT, -- Tool, Material, Equipment, Safety
     unit TEXT NOT NULL, -- pcs, kg, m, liters
     quantity_on_hand DECIMAL(12,2) DEFAULT 0,
     reorder_level DECIMAL(12,2) DEFAULT 5,
-    unit_cost DECIMAL(12,2)
+    unit_cost DECIMAL(12,2),
+    trade_relevance text[] DEFAULT '{}'
 );
 
 CREATE TABLE inventory_usage (
@@ -188,8 +189,8 @@ CREATE TABLE procurement_requests (
     quantity_requested DECIMAL(12,2) NOT NULL,
     estimated_cost DECIMAL(12,2),
     status TEXT DEFAULT 'pending', -- pending, approved, purchased, cancelled
-    requested_by UUID,
-    approved_by UUID,
+    requested_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    approved_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
