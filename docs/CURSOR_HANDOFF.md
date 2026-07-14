@@ -16,6 +16,21 @@ You are taking over an in-progress engineering session on **VTMS**, a vocational
 - **Data state**: `batches`, `trainees`, `inventory_items` / `inventory_usage`, and `procurement_requests` are Supabase-backed (store actions are async, write-then-update-state). The other domains (attendance, competency, case notes, financials, graduation, alumni) are still **browser-local only** (empty seed arrays in `src/store/seed.ts`) — wiring them to Supabase is planned work.
 - Currency is **USD** everywhere (`formatCurrency` in `src/lib/utils.ts`).
 
+## Track A — Entity lifecycle ✅ SHIPPED (2026-07-14)
+
+**Branch:** `feat/entity-lifecycle` (ready to merge to `main` when reviewed).
+
+Batches, trainees, and trainers now support **edit / pause / resume / delete** with app preflight dependency guards and RLS aligned in `schema.sql`. Spec: `docs/superpowers/specs/2026-07-14-entity-lifecycle-design.md`.
+
+**Human must run before pause status writes succeed in production:**
+
+1. Supabase SQL Editor → run **entire** `docs/migrations/2026-07-14-entity-lifecycle.sql` once (or the combined `RUN_THIS_IN_SUPABASE.sql` at repo root if that is your live-DB bundle).
+2. Without this migration, `paused` status updates fail against the live DB CHECK constraints.
+
+**Manual smoke (after migration):** edit batch trades/status; pause batch blocks new enrollment; paused trainee absent from attendance; paused trainer blocked at sign-in and in assignment dropdowns; delete empty batch OK, delete with dependents blocked with counts; trainer delete blocked while assigned to `batch_trades`.
+
+**Next priority:** **Track B** — wire remaining browser-local domains to Supabase (case notes first — sensitive), following the `batches`/`trainees` store pattern.
+
 ## CRITICAL — uncommitted work sitting in the tree RIGHT NOW
 
 A large finished-and-verified changeset is UNCOMMITTED (typecheck clean, 21/21 vitest tests pass, `npm run build` succeeds, visually verified light+dark via Playwright). **Your first task: run `cd vtms-frontend && npx tsc --noEmit && npm test`, then commit ALL of it and push to `main`** (Vercel auto-deploys from main). Suggested message: `feat: SCM roles expansion, demo-data purge, dark-mode fixes, invite redirect, PWA icons`. NEVER commit `.env.local` files or `scripts/core-users.credentials.txt` (all git-ignored — verify with `git status` that no secrets are staged).
@@ -47,9 +62,9 @@ The changeset contains:
 - ⚠️ No rate limiting on `api/invite-staff` (admin-gated, acceptable short-term).
 - ⚠️ No password-reset UI (only invite flow). Add a "Forgot password" flow (`resetPasswordForEmail` → reuse `/welcome` or a `/reset` page).
 
-## Your mission after committing (in priority order)
+## Your mission (in priority order)
 
-1. **Wire remaining domains to Supabase** one at a time, following the exact pattern in `src/store/index.ts` for batches/trainees/inventory (row-mapper + async actions + RLS already in place). Order: case notes (sensitive!), attendance, competency+modules, financials/sales/production, graduation/alumni. Bump store persist version when removing a domain from local persistence.
+1. **Track B — Wire remaining domains to Supabase** one at a time, following the exact pattern in `src/store/index.ts` for batches/trainees/inventory (row-mapper + async actions + RLS already in place). Order: case notes (sensitive!), attendance, competency+modules, financials/sales/production, graduation/alumni. Bump store persist version when removing a domain from local persistence. *(Track A entity lifecycle is shipped — see section above.)*
 2. **Auth improvements**: forgot-password flow; deactivate/reactivate staff + role editing on the Staff page (service-role endpoint like invite); optional session-expiry toast.
 3. **UI polish**: empty-state illustrations/CTAs for the now-empty modules; loading skeletons instead of spinners; mobile audit of tables (they overflow — wrap in `overflow-x-auto`); accessibility pass (labels, focus traps in the sidebar drawer).
 4. **Phase 2 features** (each needs its own schema + RLS + UI; user has paper forms digitized in the repo's chat history — ask them to re-share PDFs if needed): per-batch **trades[] array** (batches 1–3 had 2 trades; 4–5 have 4) + per-trade module management; **Applicant Pipeline** (application intake → duplicate/repeat-applicant flagging by name+phone+DOB across batches → interview scoring rubric → auto-selection top-N per trade with waitlist → one-click enrollment); **Project Charter** per batch (goals/risks/roles/milestones) feeding a **Progress/Phase Tracker** timeline (Mobilization→Selection→Enrollment→Training M1–6→Midpoint→Graduation→Follow-up, auto-highlight current phase by date); **Meetings** (monthly×6 + midpoint + endpoint; minutes, action items with owner/due/status); **Reports** (Batch→Month 1–6 monthly report matching their template, PDF export for donors); **Follow-Up** (internship/attachment place + end date); **Document Storage** per trainee (Supabase Storage: ID, birth cert, recommendation, photos; consent flag; access-controlled); **Notifications/Reminders** (report due dates, meetings, attachment end dates); **Data Export** (CSV/XLSX of raw tables for donors).
