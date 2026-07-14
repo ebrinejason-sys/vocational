@@ -37,8 +37,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .eq('id', callerData.user.id)
     .single();
 
-  if (profileError || !callerProfile || callerProfile.role !== 'admin' || !callerProfile.active) {
-    res.status(403).json({ error: 'Only active admins can invite staff' });
+  if (profileError || !callerProfile || !callerProfile.active) {
+    res.status(403).json({ error: 'Not allowed to invite staff' });
     return;
   }
 
@@ -50,6 +50,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
   if (!email || !fullName || !role || !ALLOWED_ROLES.includes(role as Role)) {
     res.status(400).json({ error: 'email, fullName, and a valid role are required' });
+    return;
+  }
+
+  const isAdmin = callerProfile.role === 'admin';
+  const isDirectorInvitingTrainer = callerProfile.role === 'director' && role === 'trainer';
+  if (!isAdmin && !isDirectorInvitingTrainer) {
+    res.status(403).json({ error: 'Only admins can invite staff (directors may invite trainers)' });
     return;
   }
 
