@@ -1,12 +1,8 @@
 -- ============================================================
--- VTMS Track A — Entity lifecycle (paused + delete RLS)
--- File: docs/migrations/2026-07-14-entity-lifecycle.sql
---
--- Run this ENTIRE script once in Supabase → SQL Editor → Run.
--- Do NOT run the design.md or plan.md files (those are Markdown).
+-- COPY EVERYTHING BELOW INTO SUPABASE SQL EDITOR AND CLICK RUN
+-- File name must end in .sql — never open design.md or plan.md
 -- ============================================================
 
--- 1) Batches: allow status = 'paused'
 DO $$
 DECLARE
   cname text;
@@ -28,7 +24,6 @@ BEGIN
     CHECK (status IN ('planned', 'active', 'paused', 'completed', 'archived'));
 END $$;
 
--- 2) Trainees: allow status = 'paused'
 DO $$
 DECLARE
   cname text;
@@ -50,9 +45,6 @@ BEGIN
     CHECK (status IN ('prospect', 'enrolled', 'paused', 'graduated', 'dropped', 'alumni'));
 END $$;
 
--- 3) profiles.active already exists — used for trainer pause. No change.
-
--- 4) Allow canEdit roles to DELETE batches/trainees (after app dependency checks)
 ALTER POLICY batches_delete ON public.batches
   USING (
     current_role_is(
@@ -79,7 +71,6 @@ ALTER POLICY trainees_delete ON public.trainees
     )
   );
 
--- 5) Optional sanity check (should return paused in both lists)
 SELECT 'batches.status values' AS check_name,
        pg_get_constraintdef(oid) AS definition
 FROM pg_constraint
