@@ -120,11 +120,21 @@ function defaultForm(activeBatchId: string, trade: TradeType | '' = ''): FormDat
 
 // ── Registration form ─────────────────────────────────────────────────────────
 
-function RegistrationForm({ onClose }: { onClose: () => void }) {
+export function RegistrationForm({
+  onClose,
+  fixedBatchId,
+}: {
+  onClose: () => void;
+  /** When set, registration is locked to this batch (used from Batch Detail). */
+  fixedBatchId?: string;
+}) {
   const { batches, activeBatchId, addTrainee } = useStore();
-  const resolvedBatchId = batches.some((b) => b.id === activeBatchId)
-    ? activeBatchId
-    : (batches[0]?.id ?? '');
+  const resolvedBatchId =
+    fixedBatchId && batches.some((b) => b.id === fixedBatchId)
+      ? fixedBatchId
+      : batches.some((b) => b.id === activeBatchId)
+        ? activeBatchId
+        : (batches[0]?.id ?? '');
   const initialTrades = batches.find((b) => b.id === resolvedBatchId)?.trades ?? [];
   const [form, setForm] = useState<FormData>(() =>
     defaultForm(resolvedBatchId, initialTrades[0]?.trade ?? '')
@@ -134,12 +144,18 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
 
   const selectedBatch = batches.find((b) => b.id === form.batchId);
   const tradeOptions = selectedBatch?.trades ?? [];
+  const lockBatch = Boolean(fixedBatchId);
 
   // Keep batch/trade valid after purge / batch list changes.
   React.useEffect(() => {
     if (!batches.length) return;
     setForm((prev) => {
-      const batchId = batches.some((b) => b.id === prev.batchId) ? prev.batchId : resolvedBatchId;
+      const batchId =
+        lockBatch && fixedBatchId && batches.some((b) => b.id === fixedBatchId)
+          ? fixedBatchId
+          : batches.some((b) => b.id === prev.batchId)
+            ? prev.batchId
+            : resolvedBatchId;
       const trades = batches.find((b) => b.id === batchId)?.trades ?? [];
       const trade = trades.some((t) => t.trade === prev.trade)
         ? prev.trade
@@ -147,7 +163,7 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
       if (batchId === prev.batchId && trade === prev.trade) return prev;
       return { ...prev, batchId, trade };
     });
-  }, [batches, resolvedBatchId]);
+  }, [batches, resolvedBatchId, fixedBatchId, lockBatch]);
 
   const assessment: VulnerabilityAssessment = {
     housingStatus: form.housingStatus,
@@ -220,8 +236,10 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
         <div className="flex gap-3">
           <button
             onClick={() => {
-              const trades = batches.find((b) => b.id === resolvedBatchId)?.trades ?? [];
-              setForm(defaultForm(resolvedBatchId, trades[0]?.trade ?? ''));
+              const trades = batches.find((b) => b.id === form.batchId)?.trades
+                ?? batches.find((b) => b.id === resolvedBatchId)?.trades
+                ?? [];
+              setForm(defaultForm(form.batchId || resolvedBatchId, trades[0]?.trade ?? ''));
               setSubmitted(false);
             }}
             className="px-4 py-2 text-sm font-medium text-primary-600 border border-primary-300 rounded-lg hover:bg-primary-50 transition-colors"
@@ -276,7 +294,8 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
             <label className={labelCls}>Batch *</label>
             <select
               required
-              className={inputCls}
+              disabled={lockBatch}
+              className={cn(inputCls, lockBatch && 'bg-gray-50 text-gray-600')}
               value={form.batchId}
               onChange={(e) => {
                 const batchId = e.target.value;

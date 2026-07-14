@@ -1,16 +1,24 @@
-import React, { useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
-  ArrowLeft, Users, GraduationCap, UserMinus, TrendingUp,
-  DollarSign, ClipboardList, BookOpen, Shield,
+  ArrowLeft, Users, GraduationCap, UserMinus,
+  DollarSign, ClipboardList, Pencil, UserPlus, Wrench,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { cn, formatCurrency, formatDate, getVulnerabilityLabel, getAttendanceRate, formatBatchTrainers } from '../lib/utils';
-import { COMPETENCY_LEVEL_LABELS } from '../types';
-import type { CompetencyLevel } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { canEdit } from '../lib/permissions';
+import {
+  cn, formatCurrency, formatDate, getVulnerabilityLabel, getAttendanceRate,
+  friendlyError,
+} from '../lib/utils';
+import { COMPETENCY_LEVEL_LABELS, TRADE_OPTIONS } from '../types';
+import type { BatchStatus, CompetencyLevel, TradeType } from '../types';
+import { supabase } from '../lib/supabase';
+import Modal from '../components/Modal';
+import { RegistrationForm } from './Trainees';
 
 const TRADE_COLORS: Record<string, string> = {
   Carpentry: 'bg-amber-100 text-amber-700',
@@ -27,19 +35,92 @@ const STATUS_COLORS: Record<string, string> = {
   prospect: 'bg-yellow-100 text-yellow-700',
 };
 
+interface TrainerOption {
+  id: string;
+  fullName: string;
+  trades: TradeType[];
+}
+
+interface EditForm {
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: BatchStatus;
+  budgetAllocated: string;
+  targetEnrollment: string;
+  description: string;
+  selectedTrades: TradeType[];
+  trainersByTrade: Partial<Record<TradeType, string>>;
+}
+
 export default function BatchDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const {
     batches,
     trainees,
     attendanceRecords,
     competencyAssessments,
     financialTransactions,
+    updateBatch,
   } = useStore();
 
+  const mayEditBatch = profile ? canEdit(profile.role, 'batches') : false;
+  const mayEditTrainees = profile ? canEdit(profile.role, 'trainees') : false;
+
   const batch = batches.find((b) => b.id === id);
-  const batchTrainees = trainees.filter((t) => t.batchId === id);
+  const batchTrainees = useMemo(
+    () => trainees.filter((t) => t.batchId === id),
+    [trainees, id]
+  );
+
+  const [showEdit, setShowEdit] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [trainers, setTrainers] = useState<TrainerOption[]>([]);
+
+  useEffect(() => {
+    if (!showEdit) return;
+    let cancelled = false;
+    (async () => {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, profile_trades(trade)')
+        .eq('role', 'trainer')
+        .eq('active', true)
+        .order('full_name');
+      if (cancelled || !profiles) return;
+      setTrainers(
+        profiles.map((p) => ({
+          id: p.id as string,
+          fullName: p.full_name as string,
+          trades: ((p.profile_trades as { trade: string }[] | null) ?? []).map((t) => t.trade as TradeType),
+        }))
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [showEdit]);
+
+  const batchFinancials = useMemo(
+    () => financialTransactions.filter((ft) => ft.batchId === id),
+    [financialTransactions, id]
+  );
+
+  const expenseByCategory = useMemo(() => {
+    const grouped: Record<string, number> = {};
+    batchFinancials
+      .filter((ft) => ft.type === 'expense')
+      .forEach((ft) => {
+        grouped[ft.category] = (grouped[ft.category] || 0) + ft.amount;
+      });
+    return Object.entries(grouped).map(([category, amount]) => ({
+      category: category.length > 14 ? `${category.substring(0, 14)}…` : category,
+      amount,
+    }));
+  }, [batchFinancials]);
 
   if (!batch) {
     return (
@@ -47,16 +128,15 @@ export default function BatchDetail() {
         <p className="text-lg font-semibold text-gray-700">Batch not found</p>
         <p className="text-sm text-gray-400 mt-1">The batch you are looking for does not exist.</p>
         <button
-          onClick={() => navigate(-1)}
+          type="button"
+          onClick={() => navigate('/batches')}
           className="mt-4 px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 transition-colors"
         >
-          Go Back
+          Back to Batches
         </button>
       </div>
     );
   }
-
-  // ── Batch-level stats ──────────────────────────────────────────────────────
 
   const enrolledCount = batchTrainees.filter(
     (t) => t.status === 'enrolled' || t.status === 'prospect'
@@ -70,9 +150,6 @@ export default function BatchDetail() {
       ? Math.round(batchTrainees.reduce((s, t) => s + t.vulnerabilityScore, 0) / batchTrainees.length)
       : 0;
 
-  // ── Financial summary ──────────────────────────────────────────────────────
-
-  const batchFinancials = financialTransactions.filter((ft) => ft.batchId === id);
   const totalIncome = batchFinancials
     .filter((ft) => ft.type === 'income')
     .reduce((s, ft) => s + ft.amount, 0);
@@ -81,28 +158,11 @@ export default function BatchDetail() {
     .reduce((s, ft) => s + ft.amount, 0);
   const remaining = batch.budgetAllocated - totalExpenses;
 
-  // Group expenses by category for chart
-  const expenseByCategory = useMemo(() => {
-    const grouped: Record<string, number> = {};
-    batchFinancials
-      .filter((ft) => ft.type === 'expense')
-      .forEach((ft) => {
-        grouped[ft.category] = (grouped[ft.category] || 0) + ft.amount;
-      });
-    return Object.entries(grouped).map(([category, amount]) => ({
-      category: category.length > 14 ? category.substring(0, 14) + '…' : category,
-      amount,
-    }));
-  }, [batchFinancials]);
-
-  // Budget overview chart data
   const budgetChartData = [
     { name: 'Budget', amount: batch.budgetAllocated },
     { name: 'Spent', amount: totalExpenses },
     { name: 'Remaining', amount: Math.max(0, remaining) },
   ];
-
-  // ── Per-trainee computed data ──────────────────────────────────────────────
 
   const traineeIds = batchTrainees.map((t) => t.id);
 
@@ -123,22 +183,102 @@ export default function BatchDetail() {
     return latest.level;
   };
 
-  // ── Overall attendance for the batch ─────────────────────────────────────
-
   const batchAttendanceRecords = attendanceRecords.filter((r) => traineeIds.includes(r.traineeId));
   const batchPresentCount = batchAttendanceRecords.filter(
     (r) => r.status === 'present' || r.status === 'late'
   ).length;
   const overallAttendanceRate = getAttendanceRate(batchPresentCount, batchAttendanceRecords.length);
+  const missingTrainers = batch.trades.some((t) => !t.trainerId);
+  const vulnLabel = getVulnerabilityLabel(avgVulnerability);
+
+  function openEdit() {
+    setEditError(null);
+    setEditForm({
+      name: batch!.name,
+      startDate: batch!.startDate,
+      endDate: batch!.endDate ?? '',
+      status: batch!.status,
+      budgetAllocated: String(batch!.budgetAllocated),
+      targetEnrollment: String(batch!.targetEnrollment),
+      description: batch!.description,
+      selectedTrades: batch!.trades.map((t) => t.trade),
+      trainersByTrade: Object.fromEntries(
+        batch!.trades.map((t) => [t.trade, t.trainerId ?? ''])
+      ) as Partial<Record<TradeType, string>>,
+    });
+    setShowEdit(true);
+  }
+
+  function toggleTrade(trade: TradeType) {
+    setEditForm((prev) => {
+      if (!prev) return prev;
+      const selected = prev.selectedTrades.includes(trade)
+        ? prev.selectedTrades.filter((t) => t !== trade)
+        : [...prev.selectedTrades, trade];
+      const trainersByTrade = { ...prev.trainersByTrade };
+      if (!selected.includes(trade)) delete trainersByTrade[trade];
+      return { ...prev, selectedTrades: selected, trainersByTrade };
+    });
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editForm || !batch) return;
+    setEditError(null);
+    if (!editForm.name.trim()) {
+      setEditError('Batch name is required.');
+      return;
+    }
+    if (!editForm.selectedTrades.length) {
+      setEditError('Select at least one trade.');
+      return;
+    }
+    for (const trade of editForm.selectedTrades) {
+      if (!editForm.trainersByTrade[trade]) {
+        setEditError(`Pick a trainer for ${trade}.`);
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      await updateBatch(batch.id, {
+        name: editForm.name.trim(),
+        startDate: editForm.startDate,
+        endDate: editForm.endDate.trim() || null,
+        status: editForm.status,
+        budgetAllocated: Number(editForm.budgetAllocated) || 0,
+        targetEnrollment: Number(editForm.targetEnrollment) || 0,
+        description: editForm.description.trim(),
+        trades: editForm.selectedTrades.map((trade) => {
+          const trainerId = editForm.trainersByTrade[trade]!;
+          const trainer = trainers.find((t) => t.id === trainerId);
+          return {
+            trade,
+            trainerId,
+            trainerName: trainer?.fullName ?? batch.trades.find((x) => x.trade === trade)?.trainerName ?? '',
+          };
+        }),
+      });
+      setShowEdit(false);
+    } catch (err) {
+      setEditError(friendlyError(err, 'Failed to update batch.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls =
+    'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white';
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start gap-3">
         <button
-          onClick={() => navigate(-1)}
+          type="button"
+          onClick={() => navigate('/batches')}
           className="mt-0.5 p-2 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors"
-          aria-label="Go back"
+          aria-label="Back to batches"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
@@ -160,26 +300,63 @@ export default function BatchDetail() {
             </span>
           </div>
           <p className="text-sm text-gray-500">
-            Trainers: <strong className="text-gray-700">{formatBatchTrainers(batch.trades)}</strong>
-            {' · '}
             {formatDate(batch.startDate)} – {batch.endDate ? formatDate(batch.endDate) : 'Ongoing'}
+            {' · '}
+            Target {batch.targetEnrollment} · Budget {formatCurrency(batch.budgetAllocated)}
           </p>
+          {batch.trades.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-xs text-gray-600">
+              {batch.trades.map((t) => (
+                <li key={t.trade}>
+                  <span className="font-semibold">{t.trade}:</span>{' '}
+                  {t.trainerName || (
+                    <span className="text-amber-700">No trainer — edit batch to assign</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           {batch.description && (
             <p className="text-xs text-gray-400 mt-1">{batch.description}</p>
           )}
         </div>
+        <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          {mayEditBatch && (
+            <button
+              type="button"
+              onClick={openEdit}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
+            >
+              <Pencil className="w-4 h-4" />
+              Edit
+            </button>
+          )}
+          {mayEditTrainees && (
+            <button
+              type="button"
+              onClick={() => setShowRegister(true)}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add trainee
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* ── Top stats row ── */}
+      {missingTrainers && mayEditBatch && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-3">
+          <p>Some trades have no trainer yet. Assign them so registration shows who teaches each trade.</p>
+          <button type="button" onClick={openEdit} className="text-xs font-semibold underline">
+            Assign trainers
+          </button>
+        </div>
+      )}
+
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          {
-            icon: Users,
-            label: 'Enrolled',
-            value: enrolledCount,
-            sub: `of ${batch.targetEnrollment} target`,
-            accent: true,
-          },
+          { icon: Users, label: 'Enrolled', value: enrolledCount, sub: `of ${batch.targetEnrollment} target` },
           {
             icon: GraduationCap,
             label: 'Graduated',
@@ -187,7 +364,6 @@ export default function BatchDetail() {
             sub: batchTrainees.length > 0
               ? `${Math.round((graduatedCount / batchTrainees.length) * 100)}% grad rate`
               : '—',
-            accent: false,
           },
           {
             icon: UserMinus,
@@ -196,184 +372,140 @@ export default function BatchDetail() {
             sub: batchTrainees.length > 0
               ? `${Math.round((droppedCount / batchTrainees.length) * 100)}% of intake`
               : '—',
-            accent: false,
           },
           {
-            icon: Shield,
+            icon: DollarSign,
             label: 'Avg Vulnerability',
             value: avgVulnerability,
-            sub: getVulnerabilityLabel(avgVulnerability).label,
-            accent: false,
+            sub: vulnLabel.label,
           },
-        ].map(({ icon: Icon, label, value, sub, accent }) => (
-          <div key={label} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center gap-3 mb-2">
-              <div className={cn(
-                'w-8 h-8 rounded-lg flex items-center justify-center',
-                accent ? 'bg-primary-100' : 'bg-gray-100'
-              )}>
-                <Icon className={cn('w-4 h-4', accent ? 'text-primary-600' : 'text-gray-500')} />
-              </div>
-              <p className="text-xs text-gray-500 font-medium">{label}</p>
+        ].map(({ icon: Icon, label, value, sub }) => (
+          <div key={label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <Icon className="w-3.5 h-3.5 text-primary-500" />
+              {label}
             </div>
-            <p className={cn('text-2xl font-bold', accent ? 'text-primary-600' : 'text-gray-900')}>
-              {value}
-            </p>
+            <p className="text-2xl font-bold text-gray-900">{value}</p>
             <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>
           </div>
         ))}
       </div>
 
-      {/* ── Budget + Attendance row ── */}
+      {/* Budget / attendance */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Budget vs Actual */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <div className="flex items-center gap-2 mb-4">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
             <DollarSign className="w-4 h-4 text-primary-500" />
-            <p className="text-sm font-semibold text-gray-700">Budget vs Actual Spend</p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            {[
-              { label: 'Budget', amount: batch.budgetAllocated, color: 'text-gray-900' },
-              { label: 'Total Income', amount: totalIncome, color: 'text-green-600' },
-              { label: 'Spent', amount: totalExpenses, color: 'text-primary-600' },
-            ].map(({ label, amount, color }) => (
-              <div key={label} className="text-center">
-                <p className={cn('text-base font-bold', color)}>{formatCurrency(amount)}</p>
-                <p className="text-[10px] text-gray-400">{label}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mb-3">
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-gray-500">Budget utilisation</span>
-              <span className="font-semibold text-primary-600">
-                {batch.budgetAllocated > 0
-                  ? `${Math.min(100, Math.round((totalExpenses / batch.budgetAllocated) * 100))}%`
-                  : '—'}
-              </span>
+            Budget vs Actual Spend
+          </h3>
+          <div className="grid grid-cols-3 gap-2 text-center mb-4">
+            <div>
+              <p className="text-lg font-bold text-gray-900">{formatCurrency(batch.budgetAllocated)}</p>
+              <p className="text-[10px] text-gray-400">Budget</p>
             </div>
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all',
-                  totalExpenses > batch.budgetAllocated ? 'bg-red-500' : 'bg-primary-500'
-                )}
-                style={{
-                  width: `${Math.min(100, batch.budgetAllocated > 0
-                    ? Math.round((totalExpenses / batch.budgetAllocated) * 100)
-                    : 0)}%`,
-                }}
-              />
+            <div>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(totalIncome)}</p>
+              <p className="text-[10px] text-gray-400">Total Income</p>
             </div>
-            <p className="text-[11px] text-gray-400 mt-1">
-              {remaining >= 0 ? `${formatCurrency(remaining)} remaining` : `${formatCurrency(Math.abs(remaining))} over budget`}
-            </p>
+            <div>
+              <p className="text-lg font-bold text-red-600">{formatCurrency(totalExpenses)}</p>
+              <p className="text-[10px] text-gray-400">Spent</p>
+            </div>
           </div>
-
-          {expenseByCategory.length > 0 && (
-            <ResponsiveContainer width="100%" height={160} minWidth={0}>
-              <BarChart data={expenseByCategory} layout="vertical" barCategoryGap="25%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 10, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="category"
-                  tick={{ fontSize: 10, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={90}
-                />
-                <Tooltip
-                  formatter={(value: unknown) => [formatCurrency(value as number), 'Spent']}
-                  contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 11 }}
-                />
-                <Bar dataKey="amount" fill="#0d9488" radius={[0, 4, 4, 0]} />
+          <div className="h-40 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <BarChart data={budgetChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Bar dataKey="amount" fill="#0d9488" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          )}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Budget utilisation {batch.budgetAllocated > 0
+              ? Math.round((totalExpenses / batch.budgetAllocated) * 100)
+              : 0}% · {formatCurrency(Math.max(0, remaining))} remaining
+          </p>
         </div>
 
-        {/* Attendance summary */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <div className="flex items-center gap-2 mb-4">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-primary-500" />
-            <p className="text-sm font-semibold text-gray-700">Attendance Overview</p>
-          </div>
-
-          <div className="flex items-center gap-4 mb-4">
-            <div>
-              <p className="text-3xl font-bold text-primary-600">{overallAttendanceRate}%</p>
-              <p className="text-xs text-gray-400">Overall attendance rate</p>
+            Attendance Overview
+          </h3>
+          <p className="text-3xl font-bold text-primary-700">{overallAttendanceRate}%</p>
+          <p className="text-xs text-gray-400 mb-4">Overall attendance rate</p>
+          <p className="text-sm text-gray-600">
+            {batchPresentCount} of {batchAttendanceRecords.length} records marked present/late
+          </p>
+          {expenseByCategory.length > 0 && (
+            <div className="h-36 mt-4 min-w-0">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <BarChart data={expenseByCategory}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="category" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Legend />
+                  <Bar dataKey="amount" name="Expenses" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-            <div className="flex-1">
-              <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary-500 rounded-full"
-                  style={{ width: `${overallAttendanceRate}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-gray-400 mt-1">
-                {batchPresentCount} of {batchAttendanceRecords.length} records marked present/late
-              </p>
-            </div>
-          </div>
-
-          {/* Per-trainee attendance breakdown */}
-          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-            {batchTrainees.map((trainee) => {
-              const rate = getTraineeAttendance(trainee.id);
-              return (
-                <div key={trainee.id} className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-[10px] font-bold text-primary-700 shrink-0">
-                    {trainee.firstName[0]}{trainee.lastName[0]}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-gray-700 truncate">
-                      {trainee.firstName} {trainee.lastName}
-                    </p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={cn(
-                            'h-full rounded-full',
-                            rate >= 80 ? 'bg-green-500' : rate >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                          )}
-                          style={{ width: `${rate}%` }}
-                        />
-                      </div>
-                      <span className="text-[11px] font-semibold text-gray-500 w-8 text-right shrink-0">
-                        {rate}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          )}
         </div>
       </div>
 
-      {/* ── Trainee list ── */}
+      {/* Trainees */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-          <Users className="w-4 h-4 text-primary-500" />
-          <h3 className="text-sm font-semibold text-gray-700">
-            Trainees ({batchTrainees.length})
-          </h3>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-primary-500" />
+            <h3 className="text-sm font-semibold text-gray-700">
+              Trainees ({batchTrainees.length})
+            </h3>
+          </div>
+          {mayEditTrainees && (
+            <button
+              type="button"
+              onClick={() => setShowRegister(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-700 hover:text-primary-800"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Add trainee
+            </button>
+          )}
         </div>
 
         {batchTrainees.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">
-            No trainees enrolled in this batch yet.
+          <div className="p-10 text-center">
+            <p className="text-sm font-medium text-gray-600">No trainees in this batch yet</p>
+            <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+              Register someone into {batch.name} and choose their trade
+              {batch.trades.length ? ` (${batch.trades.map((t) => t.trade).join(', ')})` : ''}.
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              {mayEditTrainees && (
+                <button
+                  type="button"
+                  onClick={() => setShowRegister(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Register first trainee
+                </button>
+              )}
+              {mayEditBatch && (
+                <Link
+                  to="/trainers"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
+                >
+                  <Wrench className="w-4 h-4" />
+                  Manage trainers
+                </Link>
+              )}
+            </div>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -383,13 +515,15 @@ export default function BatchDetail() {
               const compLevel = getTraineeCompetencyLevel(trainee.id);
 
               return (
-                <div key={trainee.id} className="px-5 py-4 flex items-start gap-4 hover:bg-gray-50 transition-colors">
-                  {/* Avatar */}
+                <button
+                  key={trainee.id}
+                  type="button"
+                  onClick={() => navigate(`/trainees/${trainee.id}`)}
+                  className="w-full text-left px-5 py-4 flex items-start gap-4 hover:bg-sky-50 transition-colors"
+                >
                   <div className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700 shrink-0">
                     {trainee.firstName[0]}{trainee.lastName[0]}
                   </div>
-
-                  {/* Main info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold text-gray-900">
@@ -401,57 +535,163 @@ export default function BatchDetail() {
                       )}>
                         {trainee.status}
                       </span>
+                      <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full', TRADE_COLORS[trainee.trade] ?? 'bg-gray-100')}>
+                        {trainee.trade}
+                      </span>
                       <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full', vuln.color)}>
                         Vuln: {trainee.vulnerabilityScore}
                       </span>
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {trainee.gender === 'male' ? 'M' : 'F'} · {trainee.mobilizationSource}
+                      {trainee.gender === 'male' ? 'M' : 'F'}
+                      {trainee.mobilizationSource ? ` · ${trainee.mobilizationSource}` : ''}
                       {trainee.graduationDate ? ` · Graduated ${formatDate(trainee.graduationDate)}` : ''}
                     </p>
                   </div>
-
-                  {/* Right stats */}
                   <div className="flex items-center gap-4 shrink-0">
-                    {/* Attendance */}
                     <div className="text-center hidden sm:block">
-                      <div className="flex items-center gap-1 text-xs">
-                        <ClipboardList className="w-3 h-3 text-gray-400" />
-                        <span className={cn(
-                          'font-semibold',
-                          attRate >= 80 ? 'text-green-600' : attRate >= 60 ? 'text-yellow-600' : 'text-red-600'
-                        )}>
-                          {attRate}%
-                        </span>
-                      </div>
+                      <span className={cn(
+                        'text-xs font-semibold',
+                        attRate >= 80 ? 'text-green-600' : attRate >= 60 ? 'text-yellow-600' : 'text-red-600'
+                      )}>
+                        {attRate}%
+                      </span>
                       <p className="text-[10px] text-gray-400">Attend.</p>
                     </div>
-
-                    {/* Competency level */}
                     <div className="text-center hidden sm:block">
                       {compLevel ? (
-                        <>
-                          <span className={cn(
-                            'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
-                            COMPETENCY_LEVEL_LABELS[compLevel].color
-                          )}>
-                            L{compLevel}
-                          </span>
-                          <p className="text-[10px] text-gray-400 mt-0.5">
-                            {COMPETENCY_LEVEL_LABELS[compLevel].label}
-                          </p>
-                        </>
+                        <span className={cn(
+                          'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+                          COMPETENCY_LEVEL_LABELS[compLevel].color
+                        )}>
+                          L{compLevel}
+                        </span>
                       ) : (
                         <span className="text-[10px] text-gray-300 font-medium">No data</span>
                       )}
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         )}
       </div>
+
+      {showEdit && editForm && (
+        <Modal title={`Edit ${batch.name}`} onClose={() => setShowEdit(false)} size="lg">
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Name *</label>
+                <input className={inputCls} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Status *</label>
+                <select
+                  className={inputCls}
+                  value={editForm.status}
+                  onChange={(e) => setEditForm({ ...editForm, status: e.target.value as BatchStatus })}
+                >
+                  <option value="planned">Planned</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Start date *</label>
+                <input type="date" required className={inputCls} value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">End date</label>
+                <input type="date" className={inputCls} value={editForm.endDate} onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Budget (USD)</label>
+                <input className={inputCls} value={editForm.budgetAllocated} onChange={(e) => setEditForm({ ...editForm, budgetAllocated: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Target enrollment</label>
+                <input className={inputCls} value={editForm.targetEnrollment} onChange={(e) => setEditForm({ ...editForm, targetEnrollment: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                <textarea className={inputCls} rows={2} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Trades & trainers *</p>
+              <div className="space-y-2">
+                {TRADE_OPTIONS.map((trade) => {
+                  const checked = editForm.selectedTrades.includes(trade);
+                  const options = trainers.filter((t) => t.trades.includes(trade));
+                  return (
+                    <div key={trade} className="rounded-lg border border-gray-100 p-3 space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleTrade(trade)}
+                          className="rounded border-gray-300 text-primary-600"
+                        />
+                        <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', TRADE_COLORS[trade])}>{trade}</span>
+                      </label>
+                      {checked && (
+                        <select
+                          className={inputCls}
+                          value={editForm.trainersByTrade[trade] ?? ''}
+                          onChange={(e) =>
+                            setEditForm({
+                              ...editForm,
+                              trainersByTrade: { ...editForm.trainersByTrade, [trade]: e.target.value },
+                            })
+                          }
+                        >
+                          <option value="">Select trainer…</option>
+                          {options.map((t) => (
+                            <option key={t.id} value={t.id}>{t.fullName}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-2">
+                Need more trainers? <Link to="/trainers" className="text-primary-600 font-medium">Open Trainers</Link>
+              </p>
+            </div>
+
+            {editError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{editError}</p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowEdit(false)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60"
+              >
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showRegister && (
+        <Modal title={`Add trainee · ${batch.name}`} onClose={() => setShowRegister(false)} size="lg">
+          <RegistrationForm
+            fixedBatchId={batch.id}
+            onClose={() => setShowRegister(false)}
+          />
+        </Modal>
+      )}
     </div>
   );
 }
