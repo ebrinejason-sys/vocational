@@ -95,26 +95,33 @@ export default function Attendance() {
   const [selectedDate, setSelectedDate] = useState(today());
 
   const batchTrainees = useMemo(
-    () => trainees.filter((t) => t.batchId === selectedBatchId && t.status === 'enrolled'),
+    () => trainees.filter((t) => t.batchId === selectedBatchId),
     [trainees, selectedBatchId]
+  );
+
+  const markable = useMemo(
+    () => batchTrainees.filter(
+      (t) => t.status === 'enrolled' || t.status === 'prospect'
+    ),
+    [batchTrainees]
   );
 
   // Initialise selections from existing attendance records
   const existingForDay = useMemo(
     () => attendanceRecords.filter(
-      (r) => r.date === selectedDate && batchTrainees.some((t) => t.id === r.traineeId)
+      (r) => r.date === selectedDate && markable.some((t) => t.id === r.traineeId)
     ),
-    [attendanceRecords, selectedDate, batchTrainees]
+    [attendanceRecords, selectedDate, markable]
   );
 
   const defaultSelections = useCallback(() => {
     const map: Record<string, AttendanceStatus> = {};
-    batchTrainees.forEach((t) => {
+    markable.forEach((t) => {
       const existing = existingForDay.find((r) => r.traineeId === t.id);
       map[t.id] = existing ? existing.status : 'present';
     });
     return map;
-  }, [batchTrainees, existingForDay]);
+  }, [markable, existingForDay]);
 
   const [selections, setSelections] = useState<Record<string, AttendanceStatus>>(defaultSelections);
   const [saved, setSaved] = useState(false);
@@ -136,7 +143,7 @@ export default function Attendance() {
   }
 
   function handleSubmit() {
-    const records: AttendanceRecord[] = batchTrainees.map((t) => ({
+    const records: AttendanceRecord[] = markable.map((t) => ({
       id: generateId(),
       traineeId: t.id,
       date: selectedDate,
@@ -151,25 +158,25 @@ export default function Attendance() {
 
   const counts = useMemo(() => {
     const c = { present: 0, absent: 0, late: 0, excused: 0 };
-    batchTrainees.forEach((t) => {
+    markable.forEach((t) => {
       const s = selections[t.id] ?? 'present';
       c[s] = (c[s] ?? 0) + 1;
     });
     return c;
-  }, [selections, batchTrainees]);
+  }, [selections, markable]);
 
   // ── Attendance history: last 7 session dates (unique dates with records in this batch) ──
 
   const last7Dates = useMemo(() => getLast7SessionDates(), []);
 
-  const batchTraineeIds = batchTrainees.map((t) => t.id);
+  const batchTraineeIds = markable.map((t) => t.id);
 
   const historyData = useMemo(() => {
     return last7Dates.map((date) => {
       const dayRecords = attendanceRecords.filter(
         (r) => r.date === date && batchTraineeIds.includes(r.traineeId)
       );
-      const total = batchTrainees.length;
+      const total = markable.length;
       const present = dayRecords.filter((r) => r.status === 'present' || r.status === 'late').length;
       const absent = dayRecords.filter((r) => r.status === 'absent').length;
       const late = dayRecords.filter((r) => r.status === 'late').length;
@@ -177,7 +184,7 @@ export default function Attendance() {
       const rate = dayRecords.length > 0 ? getAttendanceRate(present, total) : null;
       return { date, present, absent, late, excused, total, rate, hasRecords: dayRecords.length > 0 };
     });
-  }, [attendanceRecords, batchTraineeIds, batchTrainees.length, last7Dates]);
+  }, [attendanceRecords, batchTraineeIds, markable.length, last7Dates]);
 
   const selectCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary-300';
 
@@ -227,7 +234,7 @@ export default function Attendance() {
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={batchTrainees.length === 0}
+              disabled={markable.length === 0}
               className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Save className="w-4 h-4" />
@@ -261,19 +268,19 @@ export default function Attendance() {
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-gray-400" />
             <span className="text-sm font-semibold text-gray-700">
-              {batchTrainees.length} Trainees — {formatDate(selectedDate)}
+              {markable.length} Trainees — {formatDate(selectedDate)}
             </span>
           </div>
         </div>
 
-        {batchTrainees.length === 0 ? (
+        {markable.length === 0 ? (
           <div className="py-16 text-center">
             <ClipboardList className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-            <p className="text-gray-400 text-sm">No enrolled trainees in this batch.</p>
+            <p className="text-gray-400 text-sm">No markable trainees in this batch.</p>
           </div>
         ) : (
           <ul className="divide-y divide-gray-50">
-            {batchTrainees.map((trainee) => {
+            {markable.map((trainee) => {
               const current = selections[trainee.id] ?? 'present';
               return (
                 <li key={trainee.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
@@ -307,7 +314,7 @@ export default function Attendance() {
           </ul>
         )}
 
-        {batchTrainees.length > 0 && (
+        {markable.length > 0 && (
           <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">
             {saved ? (
               <div className="flex items-center gap-2 text-green-600 font-medium text-sm">
