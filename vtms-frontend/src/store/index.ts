@@ -1,8 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
+import { resumeBatchStatus, assertNoDependencies } from '../lib/lifecycle';
+import { countBatchDependencies } from '../lib/deleteGuards';
+import { friendlyError } from '../lib/utils';
 import type {
-  Batch, BatchTradeAssignment, Trainee, Module, CompetencyAssessment, AttendanceRecord,
+  Batch, BatchStatus, BatchTradeAssignment, Trainee, Module, CompetencyAssessment, AttendanceRecord,
   CaseNote, InventoryItem, InventoryUsage, ProcurementRequest,
   ProductionLog, Sale, FinancialTransaction, StarterKit,
   AlumniFollowUp, JobPlacement, TradeType,
@@ -290,6 +293,9 @@ interface VTMSState {
   addJobPlacement: (p: JobPlacement) => void;
   addBatch: (b: Omit<Batch, 'id'>) => Promise<void>;
   updateBatch: (id: string, updates: Partial<Batch>) => Promise<void>;
+  pauseBatch: (id: string) => Promise<void>;
+  resumeBatch: (id: string) => Promise<void>;
+  deleteBatch: (id: string) => Promise<void>;
 }
 
 export const useStore = create<VTMSState>()(
@@ -398,21 +404,29 @@ export const useStore = create<VTMSState>()(
       updateBatch: async (id, updates) => {
         const current = get().batches.find((b) => b.id === id);
         if (!current) throw new Error(`Batch ${id} not found`);
-        const merged = { ...current, ...updates };
+        const merged: Batch = {
+          ...current,
+          ...updates,
+          ...(updates.status !== undefined ? { status: updates.status as BatchStatus } : {}),
+        };
         const { error } = await supabase.from('batches').update(batchCoreToRow(merged)).eq('id', id);
         if (error) throw error;
-        if (updates.trades) {
-          const { error: delError } = await supabase.from('batch_trades').delete().eq('batch_id', id);
-          if (delError) throw delError;
-          if (updates.trades.length) {
-            const { error: insError } = await supabase.from('batch_trades').insert(
-              updates.trades.map((t) => ({
-                batch_id: id,
-                trade: t.trade,
-                trainer_id: emptyToNull(t.trainerId),
-              }))
-            );
-            if (insError) throw insError;
+        if (updates.trades !== undefined) {
+          try {
+            const { error: delError } = await supabase.from('batch_trades').delete().eq('batch_id', id);
+            if (delError) throw delError;
+            if (updates.trades.length) {
+              const { error: insError } = await supabase.from('batch_trades').insert(
+                updates.trades.map((t) => ({
+                  batch_id: id,
+                  trade: t.trade,
+                  trainer_id: emptyToNull(t.trainerId),
+                }))
+              );
+              if (insError) throw insError;
+            }
+          } catch (err) {
+            throw new Error(`Failed to update batch trades: ${friendlyError(err, 'Update failed')}`);
           }
         }
         const { data: full, error: reloadError } = await supabase
@@ -423,6 +437,40 @@ export const useStore = create<VTMSState>()(
         if (reloadError) throw reloadError;
         const batch = batchFromRow(full as BatchRow);
         set((s) => ({ batches: s.batches.map((b) => (b.id === id ? batch : b)) }));
+      },
+
+      pauseBatch: async (id) => {
+        const { error } = await supabase.from('batches').update({ status: 'paused' }).eq('id', id);
+        if (error) throw error;
+        set((s) => ({
+          batches: s.batches.map((b) => (b.id === id ? { ...b, status: 'paused' as const } : b)),
+        }));
+      },
+
+      resumeBatch: async (id) => {
+        const current = get().batches.find((b) => b.id === id);
+        if (!current) throw new Error(`Batch ${id} not found`);
+        const status = resumeBatchStatus(current.startDate);
+        const { error } = await supabase.from('batches').update({ status }).eq('id', id);
+        if (error) throw error;
+        set((s) => ({
+          batches: s.batches.map((b) => (b.id === id ? { ...b, status } : b)),
+        }));
+      },
+
+      deleteBatch: async (id) => {
+        const current = get().batches.find((b) => b.id === id);
+        if (!current) throw new Error(`Batch ${id} not found`);
+        const counts = await countBatchDependencies(id);
+        assertNoDependencies(current.name, counts);
+        const { error: tradesErr } = await supabase.from('batch_trades').delete().eq('batch_id', id);
+        if (tradesErr) throw tradesErr;
+        const { error } = await supabase.from('batches').delete().eq('id', id);
+        if (error) throw error;
+        set((s) => ({
+          batches: s.batches.filter((b) => b.id !== id),
+          activeBatchId: s.activeBatchId === id ? (s.batches.find((b) => b.id !== id)?.id ?? '') : s.activeBatchId,
+        }));
       },
 
       addTrainee: async (t) => {
