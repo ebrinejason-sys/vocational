@@ -15,7 +15,7 @@ const STATUS_CONFIG: Record<BatchStatus, { label: string; color: string; icon: t
   active: { label: 'Active', color: 'bg-green-100 text-green-700', icon: CheckCircle },
   completed: { label: 'Completed', color: 'bg-blue-100 text-blue-700', icon: GraduationCap },
   planned: { label: 'Planned', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
-  paused: { label: 'Paused', color: 'bg-orange-100 text-orange-700', icon: PauseCircle },
+  paused: { label: 'Paused', color: 'bg-amber-100 text-amber-800', icon: PauseCircle },
   archived: { label: 'Archived', color: 'bg-gray-100 text-gray-500', icon: Archive },
 };
 

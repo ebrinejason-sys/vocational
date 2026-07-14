@@ -6,6 +6,7 @@ import {
 import {
   ArrowLeft, Users, GraduationCap, UserMinus,
   DollarSign, ClipboardList, Pencil, UserPlus, Wrench,
+  PauseCircle, PlayCircle, Trash2,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,6 +18,8 @@ import {
 import { COMPETENCY_LEVEL_LABELS, TRADE_OPTIONS } from '../types';
 import type { BatchStatus, CompetencyLevel, TradeType } from '../types';
 import { supabase } from '../lib/supabase';
+import { countBatchDependencies } from '../lib/deleteGuards';
+import { formatDependencyBlock } from '../lib/lifecycle';
 import Modal from '../components/Modal';
 import { RegistrationForm } from './Trainees';
 
@@ -36,10 +39,19 @@ const STATUS_COLORS: Record<string, string> = {
   prospect: 'bg-yellow-100 text-yellow-700',
 };
 
+const BATCH_STATUS_COLORS: Record<BatchStatus, string> = {
+  active: 'bg-green-100 text-green-700',
+  completed: 'bg-blue-100 text-blue-700',
+  planned: 'bg-yellow-100 text-yellow-700',
+  paused: 'bg-amber-100 text-amber-800',
+  archived: 'bg-gray-100 text-gray-500',
+};
+
 interface TrainerOption {
   id: string;
   fullName: string;
   trades: TradeType[];
+  active: boolean;
 }
 
 interface EditForm {
@@ -65,6 +77,9 @@ export default function BatchDetail() {
     competencyAssessments,
     financialTransactions,
     updateBatch,
+    pauseBatch,
+    resumeBatch,
+    deleteBatch,
   } = useStore();
 
   const mayEditBatch = profile ? canEdit(profile.role, 'batches') : false;
@@ -81,7 +96,14 @@ export default function BatchDetail() {
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
   const [trainers, setTrainers] = useState<TrainerOption[]>([]);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteCounts, setDeleteCounts] = useState<Record<string, number> | null>(null);
+  const [deleteBlocked, setDeleteBlocked] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!showEdit) return;
@@ -89,15 +111,15 @@ export default function BatchDetail() {
     (async () => {
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, full_name, profile_trades(trade)')
+        .select('id, full_name, active, profile_trades(trade)')
         .eq('role', 'trainer')
-        .eq('active', true)
         .order('full_name');
       if (cancelled || !profiles) return;
       setTrainers(
         profiles.map((p) => ({
           id: p.id as string,
           fullName: p.full_name as string,
+          active: p.active as boolean,
           trades: ((p.profile_trades as { trade: string }[] | null) ?? []).map((t) => t.trade as TradeType),
         }))
       );
@@ -222,6 +244,64 @@ export default function BatchDetail() {
     });
   }
 
+  async function handlePause() {
+    if (!batch) return;
+    setLifecycleError(null);
+    setLifecycleLoading(true);
+    try {
+      await pauseBatch(batch.id);
+    } catch (err) {
+      setLifecycleError(friendlyError(err, 'Failed to pause batch.'));
+    } finally {
+      setLifecycleLoading(false);
+    }
+  }
+
+  async function handleResume() {
+    if (!batch) return;
+    setLifecycleError(null);
+    setLifecycleLoading(true);
+    try {
+      await resumeBatch(batch.id);
+    } catch (err) {
+      setLifecycleError(friendlyError(err, 'Failed to resume batch.'));
+    } finally {
+      setLifecycleLoading(false);
+    }
+  }
+
+  async function openDelete() {
+    if (!batch) return;
+    setDeleteError(null);
+    setDeleteCounts(null);
+    setDeleteBlocked(false);
+    setShowDelete(true);
+    setDeleteLoading(true);
+    try {
+      const counts = await countBatchDependencies(batch.id);
+      setDeleteCounts(counts);
+      setDeleteBlocked(Object.values(counts).some((n) => n > 0));
+    } catch (err) {
+      setDeleteError(friendlyError(err, 'Failed to check dependencies.'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!batch || deleteBlocked) return;
+    setDeleteError(null);
+    setDeleteLoading(true);
+    try {
+      await deleteBatch(batch.id);
+      navigate('/batches');
+    } catch (err) {
+      setDeleteError(friendlyError(err, 'Failed to delete batch.'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editForm || !batch) return;
@@ -271,6 +351,12 @@ export default function BatchDetail() {
   const inputCls =
     'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white';
 
+  const trainerOptions = editForm
+    ? trainers.filter(
+        (t) => t.active || Object.values(editForm.trainersByTrade).includes(t.id)
+      )
+    : trainers;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -293,9 +379,7 @@ export default function BatchDetail() {
             ))}
             <span className={cn(
               'text-[11px] font-bold px-2 py-0.5 rounded-full capitalize',
-              batch.status === 'active' ? 'bg-green-100 text-green-700' :
-              batch.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-              'bg-gray-100 text-gray-500'
+              BATCH_STATUS_COLORS[batch.status]
             )}>
               {batch.status}
             </span>
@@ -323,14 +407,47 @@ export default function BatchDetail() {
         </div>
         <div className="flex flex-col sm:flex-row gap-2 shrink-0">
           {mayEditBatch && (
-            <button
-              type="button"
-              onClick={openEdit}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
-            >
-              <Pencil className="w-4 h-4" />
-              Edit
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={openEdit}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </button>
+              {(batch.status === 'active' || batch.status === 'planned') && (
+                <button
+                  type="button"
+                  onClick={handlePause}
+                  disabled={lifecycleLoading}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-amber-200 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                >
+                  <PauseCircle className="w-4 h-4" />
+                  Pause
+                </button>
+              )}
+              {batch.status === 'paused' && (
+                <button
+                  type="button"
+                  onClick={handleResume}
+                  disabled={lifecycleLoading}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-green-200 text-green-800 hover:bg-green-50 disabled:opacity-60"
+                >
+                  <PlayCircle className="w-4 h-4" />
+                  Resume
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={openDelete}
+                disabled={lifecycleLoading}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+            </>
           )}
           {mayEditTrainees && (
             <button
@@ -344,6 +461,12 @@ export default function BatchDetail() {
           )}
         </div>
       </div>
+
+      {lifecycleError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {lifecycleError}
+        </div>
+      )}
 
       {missingTrainers && mayEditBatch && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center justify-between gap-3">
@@ -596,6 +719,7 @@ export default function BatchDetail() {
                 >
                   <option value="planned">Planned</option>
                   <option value="active">Active</option>
+                  <option value="paused">Paused</option>
                   <option value="completed">Completed</option>
                   <option value="archived">Archived</option>
                 </select>
@@ -627,7 +751,7 @@ export default function BatchDetail() {
               <div className="space-y-2">
                 {TRADE_OPTIONS.map((trade) => {
                   const checked = editForm.selectedTrades.includes(trade);
-                  const options = trainers.filter((t) => t.trades.includes(trade));
+                  const options = trainerOptions.filter((t) => t.trades.includes(trade));
                   return (
                     <div key={trade} className="rounded-lg border border-gray-100 p-3 space-y-2">
                       <label className="flex items-center gap-2 text-sm font-medium">
@@ -691,6 +815,49 @@ export default function BatchDetail() {
             fixedBatchId={batch.id}
             onClose={() => setShowRegister(false)}
           />
+        </Modal>
+      )}
+
+      {showDelete && (
+        <Modal title={`Delete ${batch.name}`} onClose={() => setShowDelete(false)}>
+          <div className="space-y-4">
+            {deleteLoading && !deleteCounts && (
+              <p className="text-sm text-gray-500">Checking linked records…</p>
+            )}
+            {deleteCounts && deleteBlocked && (
+              <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                {formatDependencyBlock(batch.name, deleteCounts)}
+              </p>
+            )}
+            {deleteCounts && !deleteBlocked && (
+              <p className="text-sm text-gray-600">
+                This permanently deletes <strong>{batch.name}</strong> and its trade assignments.
+                This cannot be undone.
+              </p>
+            )}
+            {deleteError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {deleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDelete(false)}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteLoading || deleteBlocked || !deleteCounts}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleteLoading ? 'Deleting…' : 'Delete batch'}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>
