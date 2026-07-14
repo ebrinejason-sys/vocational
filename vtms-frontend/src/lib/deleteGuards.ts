@@ -36,17 +36,35 @@ export async function countBatchDependencies(batchId: string): Promise<Record<st
 }
 
 export async function countTraineeDependencies(traineeId: string): Promise<Record<string, number>> {
-  const [attendance, competency_assessments, case_notes, inventory_usage, starter_kits, alumni_follow_ups, job_placements] =
-    await Promise.all([
-      countEqSoft('attendance', 'trainee_id', traineeId),
-      countEqSoft('competency_assessments', 'trainee_id', traineeId),
-      countEqSoft('case_notes', 'trainee_id', traineeId),
-      countEqSoft('inventory_usage', 'trainee_id', traineeId),
-      countEqSoft('starter_kits', 'trainee_id', traineeId),
-      countEqSoft('alumni_follow_ups', 'trainee_id', traineeId),
-      countEqSoft('job_placements', 'trainee_id', traineeId),
-    ]);
-  return { attendance, competency_assessments, case_notes, inventory_usage, starter_kits, alumni_follow_ups, job_placements };
+  const [
+    attendance,
+    competency_assessments,
+    case_notes,
+    vulnerability_assessments,
+    inventory_usage,
+    starter_kits,
+    alumni_follow_ups,
+    job_placements,
+  ] = await Promise.all([
+    countEqSoft('attendance', 'trainee_id', traineeId),
+    countEqSoft('competency_assessments', 'trainee_id', traineeId),
+    countEqSoft('case_notes', 'trainee_id', traineeId),
+    countEqSoft('vulnerability_assessments', 'trainee_id', traineeId),
+    countEqSoft('inventory_usage', 'trainee_id', traineeId),
+    countEqSoft('starter_kits', 'trainee_id', traineeId),
+    countEqSoft('alumni_follow_ups', 'trainee_id', traineeId),
+    countEqSoft('job_placements', 'trainee_id', traineeId),
+  ]);
+  return {
+    attendance,
+    competency_assessments,
+    case_notes,
+    vulnerability_assessments,
+    inventory_usage,
+    starter_kits,
+    alumni_follow_ups,
+    job_placements,
+  };
 }
 
 export async function countTrainerDependencies(profileId: string): Promise<Record<string, number>> {
