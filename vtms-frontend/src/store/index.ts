@@ -13,6 +13,7 @@ import {
   SEED_PROCUREMENT_REQUESTS, SEED_PRODUCTION_LOGS, SEED_SALES, SEED_FINANCIALS,
   SEED_STARTER_KITS, SEED_ALUMNI_FOLLOWUPS, SEED_JOB_PLACEMENTS,
 } from './seed';
+import { generateId } from '../lib/utils';
 
 // ---- Supabase row <-> app-model mapping (batches & trainees only —
 // the other 12 domains stay local-seeded this phase) ----
@@ -161,8 +162,12 @@ interface VTMSState {
   addCompetencyAssessment: (a: CompetencyAssessment) => void;
   addCaseNote: (n: CaseNote) => void;
   updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
+  addInventoryItem: (item: Omit<InventoryItem, 'id'>) => void;
+  logInventoryUsage: (usage: Omit<InventoryUsage, 'id'>) => void;
   addProcurementRequest: (r: ProcurementRequest) => void;
   updateProcurementRequest: (id: string, updates: Partial<ProcurementRequest>) => void;
+  /** Mark purchased and add the requested quantity into on-hand stock. */
+  fulfillProcurementRequest: (id: string) => void;
   addProductionLog: (l: ProductionLog) => void;
   addSale: (s: Sale) => void;
   addFinancialTransaction: (t: FinancialTransaction) => void;
@@ -312,8 +317,43 @@ export const useStore = create<VTMSState>()(
       addCompetencyAssessment: (a) => set((s) => ({ competencyAssessments: [...s.competencyAssessments, a] })),
       addCaseNote: (n) => set((s) => ({ caseNotes: [...s.caseNotes, n] })),
       updateInventoryItem: (id, updates) => set((s) => ({ inventoryItems: s.inventoryItems.map((i) => (i.id === id ? { ...i, ...updates } : i)) })),
+      addInventoryItem: (item) => set((s) => ({
+        inventoryItems: [...s.inventoryItems, { ...item, id: generateId() }],
+      })),
+      logInventoryUsage: (usage) => set((s) => {
+        const item = s.inventoryItems.find((i) => i.id === usage.itemId);
+        if (!item) throw new Error('Inventory item not found');
+        if (usage.quantityUsed > item.quantityOnHand) {
+          throw new Error(`Only ${item.quantityOnHand} ${item.unit} available`);
+        }
+        return {
+          inventoryItems: s.inventoryItems.map((i) =>
+            i.id === usage.itemId
+              ? { ...i, quantityOnHand: i.quantityOnHand - usage.quantityUsed }
+              : i
+          ),
+          inventoryUsage: [
+            ...s.inventoryUsage,
+            { ...usage, id: generateId() },
+          ],
+        };
+      }),
       addProcurementRequest: (r) => set((s) => ({ procurementRequests: [...s.procurementRequests, r] })),
       updateProcurementRequest: (id, updates) => set((s) => ({ procurementRequests: s.procurementRequests.map((r) => (r.id === id ? { ...r, ...updates } : r)) })),
+      fulfillProcurementRequest: (id) => set((s) => {
+        const req = s.procurementRequests.find((r) => r.id === id);
+        if (!req || req.status === 'purchased' || req.status === 'cancelled') return s;
+        return {
+          procurementRequests: s.procurementRequests.map((r) =>
+            r.id === id ? { ...r, status: 'purchased' as const } : r
+          ),
+          inventoryItems: s.inventoryItems.map((i) =>
+            i.id === req.itemId
+              ? { ...i, quantityOnHand: i.quantityOnHand + req.quantityRequested }
+              : i
+          ),
+        };
+      }),
       addProductionLog: (l) => set((s) => ({ productionLogs: [...s.productionLogs, l] })),
       addSale: (sl) => set((s) => ({ sales: [...s.sales, sl] })),
       addFinancialTransaction: (t) => set((s) => ({ financialTransactions: [...s.financialTransactions, t] })),

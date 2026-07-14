@@ -1,13 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Package, AlertTriangle, ChevronDown, Plus, ShoppingCart,
-  CheckCircle2, TrendingDown, DollarSign, Clock, X,
-  Layers, ClipboardList,
+  Package, AlertTriangle, Plus, ShoppingCart, CheckCircle2,
+  TrendingDown, DollarSign, ClipboardList,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
-import { cn, formatCurrency, formatDate, generateId, today } from '../lib/utils';
-import type { ProcurementRequest } from '../types';
+import { canEdit } from '../lib/permissions';
+import { cn, formatCurrency, friendlyError, today } from '../lib/utils';
+import { TRADE_OPTIONS, type InventoryItem, type TradeType } from '../types';
+import Modal from '../components/Modal';
 
 const CATEGORY_COLORS: Record<string, string> = {
   Tool: 'bg-blue-100 text-blue-700',
@@ -16,12 +18,23 @@ const CATEGORY_COLORS: Record<string, string> = {
   Safety: 'bg-green-100 text-green-700',
 };
 
-const STATUS_CONFIG = {
-  pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-700' },
-  approved: { label: 'Approved', color: 'bg-blue-100 text-blue-700' },
-  purchased: { label: 'Purchased', color: 'bg-green-100 text-green-700' },
-  cancelled: { label: 'Cancelled', color: 'bg-gray-100 text-gray-500' },
-};
+const CATEGORIES: InventoryItem['category'][] = ['Tool', 'Material', 'Equipment', 'Safety'];
+
+interface ItemForm {
+  name: string;
+  category: InventoryItem['category'];
+  unit: string;
+  quantityOnHand: string;
+  reorderLevel: string;
+  unitCost: string;
+  tradeRelevance: TradeType[];
+}
+
+interface ReceiveForm {
+  itemId: string;
+  quantity: string;
+  note: string;
+}
 
 interface UsageForm {
   itemId: string;
@@ -30,38 +43,43 @@ interface UsageForm {
   purpose: string;
 }
 
-interface ProcurementForm {
-  itemId: string;
-  quantityRequested: string;
-  estimatedCost: string;
-}
+const EMPTY_ITEM: ItemForm = {
+  name: '',
+  category: 'Material',
+  unit: 'pcs',
+  quantityOnHand: '0',
+  reorderLevel: '5',
+  unitCost: '',
+  tradeRelevance: [],
+};
 
 const EMPTY_USAGE: UsageForm = { itemId: '', quantityUsed: '', batchId: '', purpose: '' };
-const EMPTY_PROCUREMENT: ProcurementForm = { itemId: '', quantityRequested: '', estimatedCost: '' };
+const EMPTY_RECEIVE: ReceiveForm = { itemId: '', quantity: '', note: '' };
 
 export default function Inventory() {
   const { profile } = useAuth();
+  const mayEdit = profile ? canEdit(profile.role, 'inventory') : false;
   const {
     inventoryItems,
     inventoryUsage,
     procurementRequests,
     batches,
+    addInventoryItem,
     updateInventoryItem,
-    addProcurementRequest,
-    updateProcurementRequest,
+    logInventoryUsage,
   } = useStore();
 
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [showReceive, setShowReceive] = useState(false);
+  const [itemForm, setItemForm] = useState<ItemForm>(EMPTY_ITEM);
+  const [receiveForm, setReceiveForm] = useState<ReceiveForm>(EMPTY_RECEIVE);
   const [usageForm, setUsageForm] = useState<UsageForm>(EMPTY_USAGE);
   const [usageErrors, setUsageErrors] = useState<Partial<UsageForm>>({});
-  const [usageSuccess, setUsageSuccess] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
 
-  const [procForm, setProcForm] = useState<ProcurementForm>(EMPTY_PROCUREMENT);
-  const [procErrors, setProcErrors] = useState<Partial<ProcurementForm>>({});
-  const [procSuccess, setProcSuccess] = useState(false);
-
-  // Derived
   const lowStockItems = useMemo(
-    () => inventoryItems.filter((i) => i.quantityOnHand < i.reorderLevel),
+    () => inventoryItems.filter((i) => i.quantityOnHand <= i.reorderLevel),
     [inventoryItems]
   );
 
@@ -75,528 +93,437 @@ export default function Inventory() {
     [procurementRequests]
   );
 
-  // Selected item for auto cost
+  const recentUsage = useMemo(
+    () => [...inventoryUsage].slice(-5).reverse(),
+    [inventoryUsage]
+  );
+
   const selectedUsageItem = inventoryItems.find((i) => i.id === usageForm.itemId);
-  const selectedProcItem = inventoryItems.find((i) => i.id === procForm.itemId);
 
-  // Estimated cost auto-fill when quantity changes
-  const autoEstimatedCost = useMemo(() => {
-    if (!selectedProcItem || !procForm.quantityRequested) return '';
-    const qty = parseFloat(procForm.quantityRequested);
-    if (isNaN(qty)) return '';
-    return String(Math.round(qty * selectedProcItem.unitCost));
-  }, [selectedProcItem, procForm.quantityRequested]);
+  function toggleTrade(trade: TradeType) {
+    setItemForm((prev) => ({
+      ...prev,
+      tradeRelevance: prev.tradeRelevance.includes(trade)
+        ? prev.tradeRelevance.filter((t) => t !== trade)
+        : [...prev.tradeRelevance, trade],
+    }));
+  }
 
-  // Validate usage form
-  const validateUsage = (): boolean => {
+  function handleAddItem(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    if (!itemForm.name.trim()) {
+      setFormError('Item name is required.');
+      return;
+    }
+    const qty = Number(itemForm.quantityOnHand);
+    const reorder = Number(itemForm.reorderLevel);
+    const cost = Number(itemForm.unitCost);
+    if (isNaN(qty) || qty < 0 || isNaN(reorder) || reorder < 0 || isNaN(cost) || cost < 0) {
+      setFormError('Enter valid numbers for quantity, reorder level, and unit cost.');
+      return;
+    }
+    addInventoryItem({
+      name: itemForm.name.trim(),
+      category: itemForm.category,
+      unit: itemForm.unit.trim() || 'pcs',
+      quantityOnHand: qty,
+      reorderLevel: reorder,
+      unitCost: cost,
+      tradeRelevance: itemForm.tradeRelevance,
+    });
+    setItemForm(EMPTY_ITEM);
+    setShowAddItem(false);
+    setBanner('Item added to inventory.');
+    setTimeout(() => setBanner(null), 3000);
+  }
+
+  function handleReceive(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    const item = inventoryItems.find((i) => i.id === receiveForm.itemId);
+    const qty = Number(receiveForm.quantity);
+    if (!item) {
+      setFormError('Select an item.');
+      return;
+    }
+    if (isNaN(qty) || qty <= 0) {
+      setFormError('Enter a valid quantity to receive.');
+      return;
+    }
+    updateInventoryItem(item.id, { quantityOnHand: item.quantityOnHand + qty });
+    setReceiveForm(EMPTY_RECEIVE);
+    setShowReceive(false);
+    setBanner(`Received ${qty} ${item.unit} of ${item.name}.`);
+    setTimeout(() => setBanner(null), 3000);
+  }
+
+  function handleLogUsage(e: React.FormEvent) {
+    e.preventDefault();
     const errors: Partial<UsageForm> = {};
-    if (!usageForm.itemId) errors.itemId = 'Select an inventory item';
+    if (!usageForm.itemId) errors.itemId = 'Select an item';
     if (!usageForm.quantityUsed || isNaN(Number(usageForm.quantityUsed)) || Number(usageForm.quantityUsed) <= 0)
       errors.quantityUsed = 'Enter a valid quantity';
     if (!usageForm.batchId) errors.batchId = 'Select a batch';
     if (!usageForm.purpose.trim()) errors.purpose = 'Describe the purpose';
-
     const item = inventoryItems.find((i) => i.id === usageForm.itemId);
     if (item && Number(usageForm.quantityUsed) > item.quantityOnHand) {
       errors.quantityUsed = `Only ${item.quantityOnHand} ${item.unit} available`;
     }
-
     setUsageErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
+    if (Object.keys(errors).length) return;
 
-  const handleLogUsage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateUsage()) return;
+    try {
+      logInventoryUsage({
+        itemId: usageForm.itemId,
+        batchId: usageForm.batchId,
+        traineeId: null,
+        quantityUsed: Number(usageForm.quantityUsed),
+        usageDate: today(),
+        purpose: usageForm.purpose.trim(),
+      });
+      setUsageForm(EMPTY_USAGE);
+      setUsageErrors({});
+      setBanner('Usage logged and stock updated.');
+      setTimeout(() => setBanner(null), 3000);
+    } catch (err) {
+      setUsageErrors({ quantityUsed: friendlyError(err, 'Could not log usage.') });
+    }
+  }
 
-    const item = inventoryItems.find((i) => i.id === usageForm.itemId)!;
-    const qty = Number(usageForm.quantityUsed);
-
-    updateInventoryItem(item.id, { quantityOnHand: item.quantityOnHand - qty });
-
-    setUsageForm(EMPTY_USAGE);
-    setUsageErrors({});
-    setUsageSuccess(true);
-    setTimeout(() => setUsageSuccess(false), 3000);
-  };
-
-  // Validate procurement form
-  const validateProcurement = (): boolean => {
-    const errors: Partial<ProcurementForm> = {};
-    if (!procForm.itemId) errors.itemId = 'Select an item';
-    if (!procForm.quantityRequested || isNaN(Number(procForm.quantityRequested)) || Number(procForm.quantityRequested) <= 0)
-      errors.quantityRequested = 'Enter a valid quantity';
-    if (!procForm.estimatedCost || isNaN(Number(procForm.estimatedCost)) || Number(procForm.estimatedCost) < 0)
-      errors.estimatedCost = 'Enter a valid estimated cost';
-    setProcErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleAddProcurement = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateProcurement()) return;
-
-    const item = inventoryItems.find((i) => i.id === procForm.itemId)!;
-    const newRequest: ProcurementRequest = {
-      id: generateId(),
-      itemId: procForm.itemId,
-      itemName: item.name,
-      quantityRequested: Number(procForm.quantityRequested),
-      estimatedCost: Number(procForm.estimatedCost),
-      status: 'pending',
-      requestedBy: profile?.fullName ?? 'Staff',
-      createdAt: today(),
-    };
-
-    addProcurementRequest(newRequest);
-    setProcForm(EMPTY_PROCUREMENT);
-    setProcErrors({});
-    setProcSuccess(true);
-    setTimeout(() => setProcSuccess(false), 3000);
-  };
-
-  const handleMarkPurchased = (id: string) => {
-    updateProcurementRequest(id, { status: 'purchased' });
-  };
+  const inputCls =
+    'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white';
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory & Procurement</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Tools, materials, and equipment management for Street Children Ministry
+            Enter stock, receive deliveries, and log what workshops use.
           </p>
         </div>
+        {mayEdit && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => { setFormError(null); setShowReceive(true); }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
+            >
+              Receive stock
+            </button>
+            <button
+              type="button"
+              onClick={() => { setFormError(null); setShowAddItem(true); }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700"
+            >
+              <Plus className="w-4 h-4" />
+              Add item
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Summary Stats */}
+      {banner && (
+        <p className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4" />
+          {banner}
+        </p>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center flex-shrink-0">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center shrink-0">
             <DollarSign className="w-5 h-5 text-sky-600" />
           </div>
           <div>
-            <p className="text-xs text-gray-500 font-medium">Total Inventory Value</p>
+            <p className="text-xs text-gray-500 font-medium">Stock value</p>
             <p className="text-lg font-bold text-gray-900">{formatCurrency(totalInventoryValue)}</p>
           </div>
         </div>
-
         <div className={cn(
-          'rounded-xl border p-5 flex items-center gap-4',
-          lowStockItems.length > 0 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'
+          'rounded-xl border shadow-sm p-5 flex items-center gap-4',
+          lowStockItems.length ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100'
         )}>
-          <div className={cn(
-            'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
-            lowStockItems.length > 0 ? 'bg-red-100' : 'bg-gray-100'
-          )}>
-            <TrendingDown className={cn('w-5 h-5', lowStockItems.length > 0 ? 'text-red-600' : 'text-gray-500')} />
+          <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', lowStockItems.length ? 'bg-red-100' : 'bg-gray-100')}>
+            <TrendingDown className={cn('w-5 h-5', lowStockItems.length ? 'text-red-600' : 'text-gray-500')} />
           </div>
           <div>
-            <p className="text-xs text-gray-500 font-medium">Low Stock Items</p>
-            <p className={cn('text-lg font-bold', lowStockItems.length > 0 ? 'text-red-700' : 'text-gray-900')}>
-              {lowStockItems.length} item{lowStockItems.length !== 1 ? 's' : ''}
+            <p className="text-xs text-gray-500 font-medium">Low stock</p>
+            <p className={cn('text-lg font-bold', lowStockItems.length ? 'text-red-700' : 'text-gray-900')}>
+              {lowStockItems.length} item{lowStockItems.length === 1 ? '' : 's'}
             </p>
           </div>
         </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
-            <Clock className="w-5 h-5 text-amber-600" />
+        <Link
+          to="/procurement"
+          className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 hover:border-primary-200 transition-colors"
+        >
+          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+            <ShoppingCart className="w-5 h-5 text-amber-600" />
           </div>
           <div>
-            <p className="text-xs text-gray-500 font-medium">Pending Requests</p>
-            <p className="text-lg font-bold text-gray-900">{pendingRequestsCount}</p>
+            <p className="text-xs text-gray-500 font-medium">Open procurement</p>
+            <p className="text-lg font-bold text-gray-900">{pendingRequestsCount} pending</p>
           </div>
-        </div>
+        </Link>
       </div>
 
-      {/* Low Stock Alert */}
       {lowStockItems.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-4 h-4 text-red-600" />
-            <h3 className="text-sm font-semibold text-red-800">
-              Low Stock Alert — {lowStockItems.length} item{lowStockItems.length !== 1 ? 's' : ''} need restocking
-            </h3>
+            <p className="text-sm font-semibold text-red-800">Below reorder level</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {lowStockItems.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center gap-2 bg-white border border-red-200 rounded-lg px-3 py-1.5"
-              >
-                <span className="text-xs font-semibold text-red-700">{item.name}</span>
-                <span className="text-xs text-red-500">
-                  {item.quantityOnHand} / {item.reorderLevel} {item.unit}
-                </span>
-              </div>
+          <ul className="text-xs text-red-700 space-y-1">
+            {lowStockItems.map((i) => (
+              <li key={i.id}>
+                {i.name}: {i.quantityOnHand} {i.unit} (reorder at {i.reorderLevel})
+              </li>
             ))}
-          </div>
+          </ul>
+          <Link to="/procurement" className="inline-block mt-3 text-xs font-semibold text-red-800 underline">
+            Request restock on Procurement →
+          </Link>
         </div>
       )}
 
-      {/* Inventory Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-200">
-          <Package className="w-4 h-4 text-sky-600" />
-          <h2 className="text-sm font-semibold text-gray-800">Inventory Items</h2>
+      {/* Catalog */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+          <Package className="w-4 h-4 text-primary-500" />
+          <h2 className="text-sm font-semibold text-gray-800">Stock catalog</h2>
           <span className="ml-auto text-xs text-gray-400">{inventoryItems.length} items</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">On Hand</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Reorder At</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit Cost</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">USD Value</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {inventoryItems.map((item) => {
-                const isLow = item.quantityOnHand < item.reorderLevel;
-                const value = item.quantityOnHand * item.unitCost;
-                return (
-                  <tr key={item.id} className={cn('hover:bg-gray-50 transition-colors', isLow && 'bg-red-50/40')}>
-                    <td className="px-5 py-3.5">
-                      <p className="text-sm font-medium text-gray-900">{item.name}</p>
-                      <p className="text-xs text-gray-400">{item.unit}</p>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full', CATEGORY_COLORS[item.category])}>
-                        {item.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      <span className={cn('text-sm font-semibold', isLow ? 'text-red-600' : 'text-gray-800')}>
-                        {item.quantityOnHand}
-                      </span>
-                      <span className="text-xs text-gray-400 ml-1">{item.unit}</span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right text-sm text-gray-500">
-                      {item.reorderLevel} {item.unit}
-                    </td>
-                    <td className="px-4 py-3.5 text-right text-sm text-gray-600">
-                      {formatCurrency(item.unitCost)}
-                    </td>
-                    <td className="px-4 py-3.5 text-right text-sm font-medium text-gray-900">
-                      {formatCurrency(value)}
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      {isLow ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-700">
-                          <AlertTriangle className="w-3 h-3" />
-                          Low Stock
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-green-100 text-green-700">
-                          <CheckCircle2 className="w-3 h-3" />
-                          OK
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Log Usage Form */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-200 bg-amber-50">
-          <Layers className="w-4 h-4 text-amber-600" />
-          <h2 className="text-sm font-semibold text-gray-800">Log Inventory Usage</h2>
-        </div>
-
-        <form onSubmit={handleLogUsage} className="p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Item */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Item *</label>
-              <div className="relative">
-                <select
-                  value={usageForm.itemId}
-                  onChange={(e) => setUsageForm((f) => ({ ...f, itemId: e.target.value }))}
-                  className={cn(
-                    'w-full appearance-none bg-gray-50 border rounded-lg px-3 py-2.5 pr-8 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500',
-                    usageErrors.itemId ? 'border-red-400' : 'border-gray-200'
-                  )}
-                >
-                  <option value="">— Select item —</option>
-                  {inventoryItems.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name} ({i.quantityOnHand} {i.unit})
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-              {usageErrors.itemId && <p className="text-xs text-red-500 mt-1">{usageErrors.itemId}</p>}
-            </div>
-
-            {/* Quantity */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Quantity Used *</label>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={usageForm.quantityUsed}
-                onChange={(e) => setUsageForm((f) => ({ ...f, quantityUsed: e.target.value }))}
-                placeholder="e.g. 5"
-                className={cn(
-                  'w-full bg-gray-50 border rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500',
-                  usageErrors.quantityUsed ? 'border-red-400' : 'border-gray-200'
-                )}
-              />
-              {usageErrors.quantityUsed && <p className="text-xs text-red-500 mt-1">{usageErrors.quantityUsed}</p>}
-            </div>
-
-            {/* Batch */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Batch *</label>
-              <div className="relative">
-                <select
-                  value={usageForm.batchId}
-                  onChange={(e) => setUsageForm((f) => ({ ...f, batchId: e.target.value }))}
-                  className={cn(
-                    'w-full appearance-none bg-gray-50 border rounded-lg px-3 py-2.5 pr-8 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500',
-                    usageErrors.batchId ? 'border-red-400' : 'border-gray-200'
-                  )}
-                >
-                  <option value="">— Select batch —</option>
-                  {batches.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-              {usageErrors.batchId && <p className="text-xs text-red-500 mt-1">{usageErrors.batchId}</p>}
-            </div>
-
-            {/* Purpose */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Purpose *</label>
-              <input
-                type="text"
-                value={usageForm.purpose}
-                onChange={(e) => setUsageForm((f) => ({ ...f, purpose: e.target.value }))}
-                placeholder="e.g. Module 3 practicals"
-                className={cn(
-                  'w-full bg-gray-50 border rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500',
-                  usageErrors.purpose ? 'border-red-400' : 'border-gray-200'
-                )}
-              />
-              {usageErrors.purpose && <p className="text-xs text-red-500 mt-1">{usageErrors.purpose}</p>}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 mt-4">
-            <button
-              type="submit"
-              className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition-colors"
-            >
-              Log Usage
-            </button>
-            {usageSuccess && (
-              <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
-                <CheckCircle2 className="w-4 h-4" />
-                Usage logged and inventory updated
-              </div>
+        {inventoryItems.length === 0 ? (
+          <div className="p-10 text-center">
+            <p className="text-sm font-medium text-gray-600">No inventory items yet</p>
+            <p className="text-xs text-gray-400 mt-1">Add hammers, timber, fabric, PPE — whatever SCM stocks.</p>
+            {mayEdit && (
+              <button
+                type="button"
+                onClick={() => setShowAddItem(true)}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-600 text-white"
+              >
+                <Plus className="w-4 h-4" />
+                Add first item
+              </button>
             )}
           </div>
-        </form>
-      </div>
-
-      {/* Procurement Requests */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-200">
-          <ShoppingCart className="w-4 h-4 text-sky-600" />
-          <h2 className="text-sm font-semibold text-gray-800">Procurement Requests</h2>
-          <span className="ml-auto text-xs text-gray-400">{procurementRequests.length} total</span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Qty Requested</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Est. Cost</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Requested By</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {procurementRequests.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-gray-400 text-sm">
-                    No procurement requests yet.
-                  </td>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-50">
+                  <th className="px-5 py-3 font-semibold">Item</th>
+                  <th className="px-3 py-3 font-semibold">Category</th>
+                  <th className="px-3 py-3 font-semibold">On hand</th>
+                  <th className="px-3 py-3 font-semibold">Reorder</th>
+                  <th className="px-3 py-3 font-semibold">Unit cost</th>
+                  <th className="px-3 py-3 font-semibold">Value</th>
+                  <th className="px-5 py-3 font-semibold">Status</th>
                 </tr>
-              ) : (
-                procurementRequests.map((req) => {
-                  const statusCfg = STATUS_CONFIG[req.status];
-                  const canMarkPurchased = req.status === 'pending' || req.status === 'approved';
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {inventoryItems.map((item) => {
+                  const low = item.quantityOnHand <= item.reorderLevel;
                   return (
-                    <tr key={req.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-5 py-3.5 text-sm font-medium text-gray-900">{req.itemName}</td>
-                      <td className="px-4 py-3.5 text-right text-sm text-gray-700">{req.quantityRequested}</td>
-                      <td className="px-4 py-3.5 text-right text-sm font-semibold text-gray-900">
-                        {formatCurrency(req.estimatedCost)}
-                      </td>
-                      <td className="px-4 py-3.5 text-sm text-gray-600">{req.requestedBy}</td>
-                      <td className="px-4 py-3.5 text-sm text-gray-500">{formatDate(req.createdAt)}</td>
-                      <td className="px-4 py-3.5 text-center">
-                        <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full', statusCfg.color)}>
-                          {statusCfg.label}
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-5 py-3 font-medium text-gray-900">{item.name}</td>
+                      <td className="px-3 py-3">
+                        <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', CATEGORY_COLORS[item.category])}>
+                          {item.category}
                         </span>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
-                        {canMarkPurchased ? (
-                          <button
-                            onClick={() => handleMarkPurchased(req.id)}
-                            className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                            Mark Purchased
-                          </button>
-                        ) : (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
+                      <td className="px-3 py-3 text-gray-700">{item.quantityOnHand} {item.unit}</td>
+                      <td className="px-3 py-3 text-gray-500">{item.reorderLevel}</td>
+                      <td className="px-3 py-3 text-gray-700">{formatCurrency(item.unitCost)}</td>
+                      <td className="px-3 py-3 text-gray-700">{formatCurrency(item.quantityOnHand * item.unitCost)}</td>
+                      <td className="px-5 py-3">
+                        <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', low ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700')}>
+                          {low ? 'Low' : 'OK'}
+                        </span>
                       </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* New Procurement Request Form */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-200 bg-sky-50">
-          <ClipboardList className="w-4 h-4 text-sky-600" />
-          <h2 className="text-sm font-semibold text-gray-800">New Procurement Request</h2>
+      {/* Log usage */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+          <ClipboardList className="w-4 h-4 text-orange-500" />
+          <h2 className="text-sm font-semibold text-gray-800">Log usage</h2>
         </div>
-
-        <form onSubmit={handleAddProcurement} className="p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Item */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Item *</label>
-              <div className="relative">
-                <select
-                  value={procForm.itemId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    const item = inventoryItems.find((i) => i.id === id);
-                    setProcForm((f) => ({
-                      ...f,
-                      itemId: id,
-                      estimatedCost: item && f.quantityRequested
-                        ? String(Math.round(Number(f.quantityRequested) * item.unitCost))
-                        : f.estimatedCost,
-                    }));
-                  }}
-                  className={cn(
-                    'w-full appearance-none bg-gray-50 border rounded-lg px-3 py-2.5 pr-8 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500',
-                    procErrors.itemId ? 'border-red-400' : 'border-gray-200'
-                  )}
-                >
-                  <option value="">— Select item —</option>
-                  {inventoryItems.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name} — {formatCurrency(i.unitCost)}/{i.unit}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-              {procErrors.itemId && <p className="text-xs text-red-500 mt-1">{procErrors.itemId}</p>}
-            </div>
-
-            {/* Quantity */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Quantity *</label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={procForm.quantityRequested}
-                onChange={(e) => {
-                  const qty = e.target.value;
-                  const item = inventoryItems.find((i) => i.id === procForm.itemId);
-                  setProcForm((f) => ({
-                    ...f,
-                    quantityRequested: qty,
-                    estimatedCost: item && qty
-                      ? String(Math.round(Number(qty) * item.unitCost))
-                      : f.estimatedCost,
-                  }));
-                }}
-                placeholder="e.g. 20"
-                className={cn(
-                  'w-full bg-gray-50 border rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500',
-                  procErrors.quantityRequested ? 'border-red-400' : 'border-gray-200'
-                )}
-              />
-              {procErrors.quantityRequested && (
-                <p className="text-xs text-red-500 mt-1">{procErrors.quantityRequested}</p>
-              )}
-            </div>
-
-            {/* Estimated Cost */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                Estimated Cost (USD) *
-                {selectedProcItem && procForm.quantityRequested && (
-                  <span className="text-gray-400 font-normal ml-1">auto-calculated</span>
-                )}
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="100"
-                value={procForm.estimatedCost}
-                onChange={(e) => setProcForm((f) => ({ ...f, estimatedCost: e.target.value }))}
-                placeholder="e.g. 360000"
-                className={cn(
-                  'w-full bg-gray-50 border rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500',
-                  procErrors.estimatedCost ? 'border-red-400' : 'border-gray-200'
-                )}
-              />
-              {procErrors.estimatedCost && (
-                <p className="text-xs text-red-500 mt-1">{procErrors.estimatedCost}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 mt-4">
-            <button
-              type="submit"
-              className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold rounded-lg transition-colors"
+        <form onSubmit={handleLogUsage} className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Item *</label>
+            <select
+              className={inputCls}
+              value={usageForm.itemId}
+              onChange={(e) => setUsageForm({ ...usageForm, itemId: e.target.value })}
+              disabled={!inventoryItems.length}
             >
-              Submit Request
-            </button>
-            {procSuccess && (
-              <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
-                <CheckCircle2 className="w-4 h-4" />
-                Procurement request submitted
-              </div>
-            )}
+              <option value="">{inventoryItems.length ? 'Select item…' : 'Add items first'}</option>
+              {inventoryItems.map((i) => (
+                <option key={i.id} value={i.id}>{i.name} ({i.quantityOnHand} {i.unit})</option>
+              ))}
+            </select>
+            {usageErrors.itemId && <p className="text-xs text-red-600 mt-1">{usageErrors.itemId}</p>}
           </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Quantity used *</label>
+            <input
+              className={inputCls}
+              value={usageForm.quantityUsed}
+              onChange={(e) => setUsageForm({ ...usageForm, quantityUsed: e.target.value })}
+              placeholder={selectedUsageItem ? `Max ${selectedUsageItem.quantityOnHand}` : '0'}
+            />
+            {usageErrors.quantityUsed && <p className="text-xs text-red-600 mt-1">{usageErrors.quantityUsed}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Batch *</label>
+            <select
+              className={inputCls}
+              value={usageForm.batchId}
+              onChange={(e) => setUsageForm({ ...usageForm, batchId: e.target.value })}
+            >
+              <option value="">Select batch…</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+            {usageErrors.batchId && <p className="text-xs text-red-600 mt-1">{usageErrors.batchId}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Purpose *</label>
+            <input
+              className={inputCls}
+              value={usageForm.purpose}
+              onChange={(e) => setUsageForm({ ...usageForm, purpose: e.target.value })}
+              placeholder="e.g. Carpentry practical — week 3"
+            />
+            {usageErrors.purpose && <p className="text-xs text-red-600 mt-1">{usageErrors.purpose}</p>}
+          </div>
+          {mayEdit && (
+            <div className="sm:col-span-2 flex justify-end">
+              <button type="submit" className="px-4 py-2 rounded-lg text-sm font-semibold bg-orange-600 text-white hover:bg-orange-700">
+                Log usage
+              </button>
+            </div>
+          )}
         </form>
+        {recentUsage.length > 0 && (
+          <div className="px-5 pb-5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Recent usage</p>
+            <ul className="text-xs text-gray-600 space-y-1">
+              {recentUsage.map((u) => {
+                const item = inventoryItems.find((i) => i.id === u.itemId);
+                const batch = batches.find((b) => b.id === u.batchId);
+                return (
+                  <li key={u.id}>
+                    {u.usageDate}: {u.quantityUsed} {item?.unit ?? ''} {item?.name ?? 'item'}
+                    {batch ? ` · ${batch.name}` : ''} — {u.purpose}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
+
+      {showAddItem && (
+        <Modal title="Add inventory item" onClose={() => setShowAddItem(false)} size="lg">
+          <form onSubmit={handleAddItem} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Name *</label>
+                <input className={inputCls} value={itemForm.name} onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })} placeholder="e.g. Carpentry hammers" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Category *</label>
+                <select className={inputCls} value={itemForm.category} onChange={(e) => setItemForm({ ...itemForm, category: e.target.value as InventoryItem['category'] })}>
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Unit *</label>
+                <input className={inputCls} value={itemForm.unit} onChange={(e) => setItemForm({ ...itemForm, unit: e.target.value })} placeholder="pcs, m, kg, liters" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Opening qty *</label>
+                <input className={inputCls} value={itemForm.quantityOnHand} onChange={(e) => setItemForm({ ...itemForm, quantityOnHand: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Reorder level *</label>
+                <input className={inputCls} value={itemForm.reorderLevel} onChange={(e) => setItemForm({ ...itemForm, reorderLevel: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Unit cost (USD) *</label>
+                <input className={inputCls} value={itemForm.unitCost} onChange={(e) => setItemForm({ ...itemForm, unitCost: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-xs font-semibold text-gray-600 mb-2">Relevant trades (optional)</p>
+                <div className="flex flex-wrap gap-2">
+                  {TRADE_OPTIONS.map((trade) => (
+                    <button
+                      key={trade}
+                      type="button"
+                      onClick={() => toggleTrade(trade)}
+                      className={cn(
+                        'text-xs font-semibold px-2.5 py-1 rounded-full border',
+                        itemForm.tradeRelevance.includes(trade)
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : 'bg-white text-gray-600 border-gray-200'
+                      )}
+                    >
+                      {trade}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {formError && <p className="text-xs text-red-600">{formError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowAddItem(false)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
+              <button type="submit" className="px-4 py-2 text-sm font-semibold bg-primary-600 text-white rounded-lg">Save item</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showReceive && (
+        <Modal title="Receive stock" onClose={() => setShowReceive(false)}>
+          <form onSubmit={handleReceive} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Item *</label>
+              <select className={inputCls} value={receiveForm.itemId} onChange={(e) => setReceiveForm({ ...receiveForm, itemId: e.target.value })}>
+                <option value="">Select item…</option>
+                {inventoryItems.map((i) => (
+                  <option key={i.id} value={i.id}>{i.name} (now {i.quantityOnHand} {i.unit})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Quantity received *</label>
+              <input className={inputCls} value={receiveForm.quantity} onChange={(e) => setReceiveForm({ ...receiveForm, quantity: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Note</label>
+              <input className={inputCls} value={receiveForm.note} onChange={(e) => setReceiveForm({ ...receiveForm, note: e.target.value })} placeholder="e.g. Delivery from supplier" />
+            </div>
+            {formError && <p className="text-xs text-red-600">{formError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowReceive(false)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
+              <button type="submit" className="px-4 py-2 text-sm font-semibold bg-primary-600 text-white rounded-lg">Receive</button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -15,6 +15,7 @@ import Attendance from './pages/Attendance';
 import Competency from './pages/Competency';
 import CaseManagement from './pages/CaseManagement';
 import Inventory from './pages/Inventory';
+import Procurement from './pages/Procurement';
 import Financials from './pages/Financials';
 import Graduation from './pages/Graduation';
 import Alumni from './pages/Alumni';
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="competency" element={<RequireRole roles={rolesWithAccess('competency')}><Competency /></RequireRole>} />
             <Route path="case-management" element={<RequireRole roles={rolesWithAccess('case_notes')}><CaseManagement /></RequireRole>} />
             <Route path="inventory" element={<RequireRole roles={rolesWithAccess('inventory')}><Inventory /></RequireRole>} />
+            <Route path="procurement" element={<RequireRole roles={rolesWithAccess('inventory')}><Procurement /></RequireRole>} />
             <Route path="financials" element={<RequireRole roles={rolesWithAccess('financials')}><Financials /></RequireRole>} />
             <Route path="graduation" element={<RequireRole roles={rolesWithAccess('graduation')}><Graduation /></RequireRole>} />
             <Route path="alumni" element={<RequireRole roles={rolesWithAccess('alumni')}><Alumni /></RequireRole>} />

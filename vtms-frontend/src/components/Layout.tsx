@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Package,
   DollarSign, Heart, GraduationCap, UserCheck, Menu, X, Layers,
-  LogOut, ShieldCheck, Wrench,
+  LogOut, ShieldCheck, Wrench, ShoppingCart,
 } from 'lucide-react';
 import { cn, formatBatchTrades } from '../lib/utils';
 import { useStore } from '../store';
@@ -22,6 +22,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exac
   { to: '/competency', icon: BookOpen, label: 'Competency', domain: 'competency' },
   { to: '/case-management', icon: Heart, label: 'Case Mgmt', domain: 'case_notes' },
   { to: '/inventory', icon: Package, label: 'Inventory', domain: 'inventory' },
+  { to: '/procurement', icon: ShoppingCart, label: 'Procurement', domain: 'inventory' },
   { to: '/financials', icon: DollarSign, label: 'Financials', domain: 'financials' },
   { to: '/graduation', icon: GraduationCap, label: 'Graduation', domain: 'graduation' },
   { to: '/alumni', icon: UserCheck, label: 'Alumni', domain: 'alumni' },
