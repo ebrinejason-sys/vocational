@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
-import { resumeBatchStatus, assertNoDependencies } from '../lib/lifecycle';
-import { countBatchDependencies } from '../lib/deleteGuards';
+import { resumeBatchStatus, resumeTraineeStatus, assertNoDependencies } from '../lib/lifecycle';
+import { countBatchDependencies, countTraineeDependencies } from '../lib/deleteGuards';
 import { friendlyError } from '../lib/utils';
 import type {
   Batch, BatchStatus, BatchTradeAssignment, Trainee, Module, CompetencyAssessment, AttendanceRecord,
@@ -271,6 +271,9 @@ interface VTMSState {
   setActiveBatch: (id: string) => void;
   addTrainee: (t: Omit<Trainee, 'id'>) => Promise<void>;
   updateTrainee: (id: string, updates: Partial<Trainee>) => Promise<void>;
+  pauseTrainee: (id: string) => Promise<void>;
+  resumeTrainee: (id: string) => Promise<void>;
+  deleteTrainee: (id: string) => Promise<void>;
   logAttendance: (records: AttendanceRecord[]) => void;
   addCompetencyAssessment: (a: CompetencyAssessment) => void;
   addCaseNote: (n: CaseNote) => void;
@@ -481,6 +484,12 @@ export const useStore = create<VTMSState>()(
         if (!batch) {
           throw new Error('That batch no longer exists. Pick a current batch and try again.');
         }
+        if (batch.status === 'paused') {
+          throw new Error('This batch is paused. Resume it before registering new trainees.');
+        }
+        if (batch.status === 'completed' || batch.status === 'archived') {
+          throw new Error('Cannot register trainees into a completed or archived batch.');
+        }
         if (!t.trade || !batch.trades.some((x) => x.trade === t.trade)) {
           throw new Error('Select a trade offered in this batch.');
         }
@@ -496,11 +505,41 @@ export const useStore = create<VTMSState>()(
       updateTrainee: async (id, updates) => {
         const current = get().trainees.find((t) => t.id === id);
         if (!current) throw new Error(`Trainee ${id} not found`);
+        if (current.status === 'paused' && updates.batchId && updates.batchId !== current.batchId) {
+          throw new Error('Resume this trainee before moving them to another batch.');
+        }
         const merged = { ...current, ...updates };
         const { data, error } = await supabase.from('trainees').update(traineeToRow(merged)).eq('id', id).select().single();
         if (error) throw error;
         const trainee = traineeFromRow(data as TraineeRow);
         set((s) => ({ trainees: s.trainees.map((t) => (t.id === id ? trainee : t)) }));
+      },
+
+      pauseTrainee: async (id) => {
+        const { data, error } = await supabase.from('trainees').update({ status: 'paused' }).eq('id', id).select().single();
+        if (error) throw error;
+        const trainee = traineeFromRow(data as TraineeRow);
+        set((s) => ({ trainees: s.trainees.map((t) => (t.id === id ? trainee : t)) }));
+      },
+
+      resumeTrainee: async (id) => {
+        const current = get().trainees.find((t) => t.id === id);
+        if (!current) throw new Error(`Trainee ${id} not found`);
+        const status = resumeTraineeStatus(Boolean(current.batchId?.trim()));
+        const { data, error } = await supabase.from('trainees').update({ status }).eq('id', id).select().single();
+        if (error) throw error;
+        const trainee = traineeFromRow(data as TraineeRow);
+        set((s) => ({ trainees: s.trainees.map((t) => (t.id === id ? trainee : t)) }));
+      },
+
+      deleteTrainee: async (id) => {
+        const current = get().trainees.find((t) => t.id === id);
+        if (!current) throw new Error(`Trainee ${id} not found`);
+        const counts = await countTraineeDependencies(id);
+        assertNoDependencies(`${current.firstName} ${current.lastName}`, counts);
+        const { error } = await supabase.from('trainees').delete().eq('id', id);
+        if (error) throw error;
+        set((s) => ({ trainees: s.trainees.filter((t) => t.id !== id) }));
       },
 
       logAttendance: (records) => set((s) => {
