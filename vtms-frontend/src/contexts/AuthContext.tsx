@@ -61,7 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // INITIAL_SESSION event is the one and only place the first
           // load's fetch happens; excluding it here would mean it never
           // happens at all.
-          useStore.getState().fetchInitialData().catch((err) => console.error('Failed to load initial data', err));
+          useStore.getState().fetchInitialData().catch((err) => {
+            console.error('Failed to load initial data', err);
+            // Unstick the Layout preloader even if core fetch fails.
+            useStore.setState({ dataLoaded: true });
+          });
         }
       } catch (err) {
         if (!mounted || requestId !== latestRequestId) return;

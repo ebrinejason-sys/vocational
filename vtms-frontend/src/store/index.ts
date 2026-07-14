@@ -200,20 +200,33 @@ interface ProcurementRequestRow {
   requested_by: string | null;
   created_at: string;
   inventory_items?: { name: string } | { name: string }[] | null;
-  requester?: { full_name: string } | { full_name: string }[] | null;
 }
 
+/** Avoid profiles!…fkey embeds — those 400 until the migration FKs exist. */
 const PROCUREMENT_SELECT =
-  'id, item_id, quantity_requested, estimated_cost, status, requested_by, created_at, inventory_items(name), requester:profiles!procurement_requests_requested_by_fkey(full_name)';
+  'id, item_id, quantity_requested, estimated_cost, status, requested_by, created_at, inventory_items(name)';
 
 function embedOne<T>(value: T | T[] | null | undefined): T | null {
   if (value == null) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-function procurementFromRow(row: ProcurementRequestRow): ProcurementRequest {
+async function profileNamesById(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (!unique.length) return new Map();
+  const { data, error } = await supabase.from('profiles').select('id, full_name').in('id', unique);
+  if (error) {
+    console.warn('Could not resolve profile names', error);
+    return new Map();
+  }
+  return new Map((data ?? []).map((p) => [p.id as string, (p.full_name as string) || 'Staff']));
+}
+
+function procurementFromRow(
+  row: ProcurementRequestRow,
+  nameById: Map<string, string> = new Map()
+): ProcurementRequest {
   const item = embedOne(row.inventory_items);
-  const requester = embedOne(row.requester);
   return {
     id: row.id,
     itemId: row.item_id,
@@ -221,9 +234,14 @@ function procurementFromRow(row: ProcurementRequestRow): ProcurementRequest {
     quantityRequested: Number(row.quantity_requested),
     estimatedCost: Number(row.estimated_cost ?? 0),
     status: row.status as ProcurementRequest['status'],
-    requestedBy: requester?.full_name ?? 'Staff',
+    requestedBy: (row.requested_by && nameById.get(row.requested_by)) || 'Staff',
     createdAt: row.created_at.slice(0, 10),
   };
+}
+
+async function mapProcurementRows(rows: ProcurementRequestRow[]): Promise<ProcurementRequest[]> {
+  const nameById = await profileNamesById(rows.map((r) => r.requested_by));
+  return rows.map((r) => procurementFromRow(r, nameById));
 }
 
 interface VTMSState {
@@ -304,19 +322,25 @@ export const useStore = create<VTMSState>()(
           supabase.from('procurement_requests').select(PROCUREMENT_SELECT).order('created_at', { ascending: false }),
         ]);
 
+        // Batches/trainees are required; inventory/procurement soft-fail so a
+        // missing column/FK never leaves the shell stuck on the preloader.
         if (batchResult.error) throw batchResult.error;
         if (traineeResult.error) throw traineeResult.error;
-        if (itemsResult.error) throw itemsResult.error;
-        if (usageResult.error) throw usageResult.error;
-        if (procurementResult.error) throw procurementResult.error;
+        if (itemsResult.error) console.warn('inventory_items load failed', itemsResult.error);
+        if (usageResult.error) console.warn('inventory_usage load failed', usageResult.error);
+        if (procurementResult.error) console.warn('procurement_requests load failed', procurementResult.error);
 
         const batches = (batchResult.data ?? []).map((r) => batchFromRow(r as BatchRow));
         const trainees = (traineeResult.data ?? []).map((r) => traineeFromRow(r as TraineeRow));
-        const inventoryItems = (itemsResult.data ?? []).map((r) => inventoryItemFromRow(r as InventoryItemRow));
-        const inventoryUsage = (usageResult.data ?? []).map((r) => inventoryUsageFromRow(r as InventoryUsageRow));
-        const procurementRequests = (procurementResult.data ?? []).map((r) =>
-          procurementFromRow(r as ProcurementRequestRow)
-        );
+        const inventoryItems = itemsResult.error
+          ? []
+          : (itemsResult.data ?? []).map((r) => inventoryItemFromRow(r as InventoryItemRow));
+        const inventoryUsage = usageResult.error
+          ? []
+          : (usageResult.data ?? []).map((r) => inventoryUsageFromRow(r as InventoryUsageRow));
+        const procurementRequests = procurementResult.error
+          ? []
+          : await mapProcurementRows((procurementResult.data ?? []) as ProcurementRequestRow[]);
         const currentActive = get().activeBatchId;
         const activeBatchId = batches.some((b) => b.id === currentActive)
           ? currentActive
@@ -525,8 +549,9 @@ export const useStore = create<VTMSState>()(
           .select(PROCUREMENT_SELECT)
           .single();
         if (error) throw error;
+        const [mapped] = await mapProcurementRows([data as ProcurementRequestRow]);
         set((s) => ({
-          procurementRequests: [procurementFromRow(data as ProcurementRequestRow), ...s.procurementRequests],
+          procurementRequests: [mapped, ...s.procurementRequests],
         }));
       },
 
@@ -546,9 +571,10 @@ export const useStore = create<VTMSState>()(
           .select(PROCUREMENT_SELECT)
           .single();
         if (error) throw error;
+        const [mapped] = await mapProcurementRows([data as ProcurementRequestRow]);
         set((s) => ({
           procurementRequests: s.procurementRequests.map((r) =>
-            r.id === id ? procurementFromRow(data as ProcurementRequestRow) : r
+            r.id === id ? mapped : r
           ),
         }));
       },
@@ -587,9 +613,10 @@ export const useStore = create<VTMSState>()(
           throw error;
         }
 
+        const [mapped] = await mapProcurementRows([data as ProcurementRequestRow]);
         set((s) => ({
           procurementRequests: s.procurementRequests.map((r) =>
-            r.id === id ? procurementFromRow(data as ProcurementRequestRow) : r
+            r.id === id ? mapped : r
           ),
           inventoryItems: s.inventoryItems.map((i) =>
             i.id === req.itemId ? { ...i, quantityOnHand: newQty } : i
@@ -608,6 +635,18 @@ export const useStore = create<VTMSState>()(
       name: 'vtms-store',
       // v4: inventory/procurement move to Supabase — drop local copies.
       version: 4,
+      migrate: (persisted) => {
+        if (persisted && typeof persisted === 'object') {
+          const state = persisted as Record<string, unknown>;
+          delete state.batches;
+          delete state.trainees;
+          delete state.inventoryItems;
+          delete state.inventoryUsage;
+          delete state.procurementRequests;
+          delete state.dataLoaded;
+        }
+        return persisted as VTMSState;
+      },
       // Server-sourced domains must not linger in localStorage across users.
       partialize: (s) => {
         const {
