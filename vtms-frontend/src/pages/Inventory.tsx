@@ -7,7 +7,7 @@ import {
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
-import { cn, formatCurrency, friendlyError, today } from '../lib/utils';
+import { cn, formatCurrency, friendlyError, today, getDisplayCurrency } from '../lib/utils';
 import { TRADE_OPTIONS, type InventoryItem, type TradeType } from '../types';
 import Modal from '../components/Modal';
 
@@ -471,7 +471,7 @@ export default function Inventory() {
                 <input className={inputCls} value={itemForm.reorderLevel} onChange={(e) => setItemForm({ ...itemForm, reorderLevel: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Unit cost (USD) *</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Unit cost ({getDisplayCurrency()}) *</label>
                 <input className={inputCls} value={itemForm.unitCost} onChange={(e) => setItemForm({ ...itemForm, unitCost: e.target.value })} />
               </div>
               <div className="sm:col-span-2">

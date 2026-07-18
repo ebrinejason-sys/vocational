@@ -5,9 +5,48 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// SCM's CTVET project reports in USD (donor: Word and Deed).
-export function formatCurrency(amount: number): string {
-  return `$${amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+/** Org display currency (set from app_settings on load). Amounts are not auto-converted. */
+export type CurrencyCode = 'USD' | 'UGX' | 'SSP' | 'EUR' | 'KES';
+
+export const CURRENCY_OPTIONS: { code: CurrencyCode; label: string }[] = [
+  { code: 'USD', label: 'US Dollar (USD)' },
+  { code: 'UGX', label: 'Ugandan Shilling (UGX)' },
+  { code: 'SSP', label: 'South Sudanese Pound (SSP)' },
+  { code: 'EUR', label: 'Euro (EUR)' },
+  { code: 'KES', label: 'Kenyan Shilling (KES)' },
+];
+
+const CURRENCY_FORMAT: Record<CurrencyCode, { locale: string; currency: string }> = {
+  USD: { locale: 'en-US', currency: 'USD' },
+  UGX: { locale: 'en-UG', currency: 'UGX' },
+  SSP: { locale: 'en-SS', currency: 'SSP' },
+  EUR: { locale: 'en-EU', currency: 'EUR' },
+  KES: { locale: 'en-KE', currency: 'KES' },
+};
+
+let displayCurrency: CurrencyCode = 'USD';
+
+export function setDisplayCurrency(code: string) {
+  if (CURRENCY_OPTIONS.some((c) => c.code === code)) {
+    displayCurrency = code as CurrencyCode;
+  }
+}
+
+export function getDisplayCurrency(): CurrencyCode {
+  return displayCurrency;
+}
+
+export function formatCurrency(amount: number, currencyCode: CurrencyCode = displayCurrency): string {
+  const meta = CURRENCY_FORMAT[currencyCode] ?? CURRENCY_FORMAT.USD;
+  try {
+    return new Intl.NumberFormat(meta.locale, {
+      style: 'currency',
+      currency: meta.currency,
+      maximumFractionDigits: currencyCode === 'UGX' || currencyCode === 'SSP' || currencyCode === 'KES' ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${currencyCode} ${amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  }
 }
 
 export function formatDate(dateStr: string): string {

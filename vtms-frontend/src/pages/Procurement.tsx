@@ -6,7 +6,7 @@ import {
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
-import { cn, formatCurrency, formatDate, friendlyError } from '../lib/utils';
+import { cn, formatCurrency, formatDate, friendlyError, getDisplayCurrency } from '../lib/utils';
 import Modal from '../components/Modal';
 
 const STATUS_CONFIG = {
@@ -311,7 +311,7 @@ export default function Procurement() {
               {errors.quantityRequested && <p className="text-xs text-red-600 mt-1">{errors.quantityRequested}</p>}
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Estimated cost (USD) *</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Estimated cost ({getDisplayCurrency()}) *</label>
               <input
                 className={inputCls}
                 value={form.estimatedCost || autoCost}

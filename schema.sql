@@ -223,7 +223,46 @@ CREATE TABLE financial_transactions (
     description TEXT,
     transaction_date DATE DEFAULT CURRENT_DATE,
     donor_id TEXT, -- For donor reporting
-    recorded_by UUID
+    recorded_by UUID,
+    updated_at TIMESTAMPTZ,
+    updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL
+);
+
+-- Org-wide settings (currency display; amounts are not auto-converted)
+CREATE TABLE app_settings (
+    id TEXT PRIMARY KEY DEFAULT 'org',
+    currency_code TEXT NOT NULL DEFAULT 'USD'
+      CHECK (currency_code IN ('USD', 'UGX', 'SSP', 'EUR', 'KES')),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL
+);
+
+INSERT INTO app_settings (id, currency_code) VALUES ('org', 'USD');
+
+CREATE TABLE financial_change_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    action TEXT NOT NULL
+      CHECK (action IN ('transaction_update', 'transaction_delete', 'currency_change')),
+    entity_type TEXT NOT NULL
+      CHECK (entity_type IN ('financial_transaction', 'app_settings')),
+    entity_id TEXT NOT NULL,
+    old_values JSONB,
+    new_values JSONB,
+    reason TEXT NOT NULL,
+    changed_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    changed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'financial_change',
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    entity_type TEXT,
+    entity_id TEXT,
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 10. POST-GRADUATION & ALUMNI
@@ -479,7 +518,32 @@ CREATE POLICY financial_transactions_update ON financial_transactions FOR UPDATE
   USING (current_role_is(ARRAY['finance_officer','admin']::user_role[]))
   WITH CHECK (current_role_is(ARRAY['finance_officer','admin']::user_role[]));
 CREATE POLICY financial_transactions_delete ON financial_transactions FOR DELETE
-  USING (current_role_is(ARRAY['admin']::user_role[]));
+  USING (current_role_is(ARRAY['finance_officer','admin']::user_role[]));
+
+ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY app_settings_select ON app_settings FOR SELECT
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','logistics_officer','director','admin']::user_role[]));
+CREATE POLICY app_settings_update ON app_settings FOR UPDATE
+  USING (current_role_is(ARRAY['director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['director','admin']::user_role[]));
+
+ALTER TABLE financial_change_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY financial_change_log_select ON financial_change_log FOR SELECT
+  USING (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
+CREATE POLICY financial_change_log_insert ON financial_change_log FOR INSERT
+  WITH CHECK (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY notifications_select ON notifications FOR SELECT
+  USING (user_id = auth.uid());
+CREATE POLICY notifications_update ON notifications FOR UPDATE
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
+CREATE POLICY notifications_insert ON notifications FOR INSERT
+  WITH CHECK (
+    current_role_is(ARRAY['finance_officer','director','admin']::user_role[])
+    OR user_id = auth.uid()
+  );
 
 -- Bucket G: starter_kits, alumni_follow_ups, job_placements — view: trainer/case_worker/director/admin, edit: case_worker/admin
 ALTER TABLE starter_kits ENABLE ROW LEVEL SECURITY;
@@ -514,4 +578,35 @@ CREATE POLICY job_placements_update ON job_placements FOR UPDATE
   WITH CHECK (current_role_is(ARRAY['case_worker','project_coordinator','admin']::user_role[]));
 CREATE POLICY job_placements_delete ON job_placements FOR DELETE
   USING (current_role_is(ARRAY['admin']::user_role[]));
+
+-- Trainee interviews (VST Screening & Assessment Tool)
+CREATE TABLE trainee_interviews (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    trainee_id UUID NOT NULL REFERENCES trainees(id) ON DELETE CASCADE,
+    batch_id UUID REFERENCES batches(id) ON DELETE SET NULL,
+    interview_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    responses JSONB NOT NULL DEFAULT '{}',
+    scores JSONB NOT NULL DEFAULT '{}',
+    total_score INTEGER NOT NULL DEFAULT 0,
+    panel_notes TEXT DEFAULT '',
+    panelist_names TEXT DEFAULT '',
+    decision TEXT NOT NULL DEFAULT 'pending'
+      CHECK (decision IN ('pending', 'selected', 'waitlist', 'rejected')),
+    created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX trainee_interviews_trainee_id_idx ON trainee_interviews(trainee_id);
+CREATE INDEX trainee_interviews_batch_id_idx ON trainee_interviews(batch_id);
+
+ALTER TABLE trainee_interviews ENABLE ROW LEVEL SECURITY;
+CREATE POLICY trainee_interviews_select ON trainee_interviews FOR SELECT
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+CREATE POLICY trainee_interviews_insert ON trainee_interviews FOR INSERT
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+CREATE POLICY trainee_interviews_update ON trainee_interviews FOR UPDATE
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+CREATE POLICY trainee_interviews_delete ON trainee_interviews FOR DELETE
+  USING (current_role_is(ARRAY['project_coordinator','director','admin']::user_role[]));
 

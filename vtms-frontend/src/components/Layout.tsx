@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Package,
   DollarSign, Heart, GraduationCap, UserCheck, Menu, X, Layers,
-  LogOut, ShieldCheck, Wrench, ShoppingCart,
+  LogOut, ShieldCheck, Wrench, ShoppingCart, ClipboardCheck,
 } from 'lucide-react';
 import { cn, formatBatchTrades } from '../lib/utils';
 import { useStore } from '../store';
@@ -12,12 +12,14 @@ import { canView, type Domain } from '../lib/permissions';
 import Brand from './Brand';
 import ThemeToggle from './ThemeToggle';
 import Preloader from './Preloader';
+import NotificationBell from './NotificationBell';
 
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; domain?: Domain }[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
   { to: '/batches', icon: Layers, label: 'Batches', domain: 'batches' },
   { to: '/trainers', icon: Wrench, label: 'Trainers', domain: 'batches' },
   { to: '/trainees', icon: Users, label: 'Trainees', domain: 'trainees' },
+  { to: '/interviews', icon: ClipboardCheck, label: 'Interviews', domain: 'trainees' },
   { to: '/attendance', icon: ClipboardList, label: 'Attendance', domain: 'attendance' },
   { to: '/competency', icon: BookOpen, label: 'Competency', domain: 'competency' },
   { to: '/case-management', icon: Heart, label: 'Case Mgmt', domain: 'case_notes' },
@@ -46,9 +48,16 @@ export default function Layout() {
   const visibleNavItems = NAV_ITEMS.filter(
     (item) => !item.domain || (profile && canView(profile.role, item.domain))
   );
-  const navItems = profile?.role === 'admin'
-    ? [...visibleNavItems, { to: '/admin/staff', icon: ShieldCheck, label: 'Staff' }]
-    : visibleNavItems;
+  const adminNav =
+    profile?.role === 'admin' || profile?.role === 'director'
+      ? [
+          ...(profile.role === 'admin'
+            ? [{ to: '/admin/staff', icon: ShieldCheck, label: 'Staff' as const }]
+            : []),
+          { to: '/admin/currency', icon: DollarSign, label: 'Currency' as const },
+        ]
+      : [];
+  const navItems = [...visibleNavItems, ...adminNav];
 
   const visibleMobileNav = MOBILE_NAV.filter(
     (item) => !item.domain || (profile && canView(profile.role, item.domain))
@@ -181,6 +190,7 @@ export default function Layout() {
               </p>
             )}
           </div>
+          <NotificationBell />
           <ThemeToggle />
         </header>
 

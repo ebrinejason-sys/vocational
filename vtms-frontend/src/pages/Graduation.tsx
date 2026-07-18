@@ -4,7 +4,7 @@ import {
   Plus, Users, TrendingUp,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { formatCurrency, formatDate, generateId, today, cn, formatBatchTrades, formatBatchTrainers } from '../lib/utils';
+import { formatCurrency, formatDate, generateId, today, cn, formatBatchTrades, formatBatchTrainers, getDisplayCurrency } from '../lib/utils';
 import type { StarterKitStatus } from '../types';
 
 const KIT_STATUS_STYLES: Record<StarterKitStatus, string> = {
@@ -276,7 +276,7 @@ export default function Graduation() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Total Value (USD)</label>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Total Value ({getDisplayCurrency()})</label>
                   <input
                     type="number"
                     min="1"

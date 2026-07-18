@@ -95,6 +95,9 @@ type FormData = {
   familyStatus: VulnerabilityAssessment['familyStatus'];
   hasDisability: boolean;
   disabilityDetails: string;
+  whyNeedTraining: string;
+  canAttendDailySixMonths: boolean | null;
+  reasonForTrade: string;
 };
 
 function defaultForm(activeBatchId: string, trade: TradeType | '' = ''): FormData {
@@ -116,6 +119,9 @@ function defaultForm(activeBatchId: string, trade: TradeType | '' = ''): FormDat
     familyStatus: 'both_parents',
     hasDisability: false,
     disabilityDetails: '',
+    whyNeedTraining: '',
+    canAttendDailySixMonths: null,
+    reasonForTrade: '',
   };
 }
 
@@ -176,6 +182,9 @@ export function RegistrationForm({
     familyStatus: form.familyStatus,
     hasDisability: form.hasDisability,
     disabilityDetails: form.disabilityDetails,
+    whyNeedTraining: form.whyNeedTraining,
+    canAttendDailySixMonths: form.canAttendDailySixMonths,
+    reasonForTrade: form.reasonForTrade,
   };
 
   const previewScore = computeVulnerabilityScore(assessment);
@@ -200,6 +209,18 @@ export function RegistrationForm({
       setSubmitError('Select a trade offered in this batch.');
       return;
     }
+    if (!form.whyNeedTraining.trim()) {
+      setSubmitError('Explain why they need to be part of the training.');
+      return;
+    }
+    if (form.canAttendDailySixMonths !== true && form.canAttendDailySixMonths !== false) {
+      setSubmitError('Indicate whether they can attend daily for 6 months.');
+      return;
+    }
+    if (!form.reasonForTrade.trim()) {
+      setSubmitError('Enter the reason for selecting this trade.');
+      return;
+    }
     try {
       await addTrainee({
         batchId: form.batchId,
@@ -215,7 +236,7 @@ export function RegistrationForm({
         mobilizationSource: form.mobilizationSource.trim(),
         vulnerabilityScore: previewScore,
         vulnerabilityAssessment: assessment,
-        status: 'enrolled',
+        status: 'prospect',
         graduationDate: null,
         photo: null,
       });
@@ -232,9 +253,9 @@ export function RegistrationForm({
           <CheckCircle className="w-7 h-7 text-green-600" />
         </div>
         <div className="text-center">
-          <p className="text-lg font-bold text-gray-900">Trainee Registered</p>
+          <p className="text-lg font-bold text-gray-900">Applicant Registered</p>
           <p className="text-sm text-gray-500 mt-1">
-            {form.firstName} {form.lastName} has been added to the system.
+            {form.firstName} {form.lastName} was saved as a prospect. Complete their interview on the Interviews page to enroll.
           </p>
         </div>
         <div className="flex gap-3">
@@ -433,6 +454,61 @@ export function RegistrationForm({
               />
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Motivation & Availability (after vulnerability) */}
+      <div className={sectionCls}>
+        <h3 className="text-sm font-bold text-gray-800 border-b border-gray-100 pb-2">
+          Motivation &amp; Availability
+        </h3>
+        <div>
+          <label className={labelCls}>Why do they need to be part of this training? *</label>
+          <textarea
+            required
+            rows={3}
+            className={inputCls}
+            value={form.whyNeedTraining}
+            onChange={(e) => set('whyNeedTraining', e.target.value)}
+            placeholder="Explain why they need / want to join the programme..."
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Able to attend daily for 6 months? *</label>
+          <div className="flex flex-wrap gap-4 mt-1">
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="radio"
+                name="canAttendDailySixMonths"
+                checked={form.canAttendDailySixMonths === true}
+                onChange={() => set('canAttendDailySixMonths', true)}
+                className="accent-primary-600"
+                required
+              />
+              Yes
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="radio"
+                name="canAttendDailySixMonths"
+                checked={form.canAttendDailySixMonths === false}
+                onChange={() => set('canAttendDailySixMonths', false)}
+                className="accent-primary-600"
+              />
+              No
+            </label>
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>Reason for selecting this trade *</label>
+          <textarea
+            required
+            rows={2}
+            className={inputCls}
+            value={form.reasonForTrade}
+            onChange={(e) => set('reasonForTrade', e.target.value)}
+            placeholder="Why did they choose carpentry, tailoring, electricity, or masonry?"
+          />
         </div>
       </div>
 

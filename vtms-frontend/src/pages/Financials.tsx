@@ -4,11 +4,13 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 import {
-  DollarSign, TrendingUp, TrendingDown, Scale, Plus, ChevronDown,
-  Users, ShoppingBag, FileText, AlertTriangle,
+  TrendingUp, TrendingDown, Scale, Plus, ChevronDown,
+  FileText, AlertTriangle, Pencil, Trash2, Users,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { formatCurrency, formatDate, generateId, today, cn } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
+import { canEdit } from '../lib/permissions';
+import { formatCurrency, formatDate, today, cn, friendlyError } from '../lib/utils';
 import type { FinancialTransaction, TransactionType } from '../types';
 
 const EXPENSE_COLORS = [
@@ -29,11 +31,26 @@ const defaultForm = {
 };
 
 export default function Financials() {
-  const { batches, financialTransactions, productionLogs, sales, addFinancialTransaction } = useStore();
+  const {
+    batches,
+    financialTransactions,
+    productionLogs,
+    sales,
+    currencyCode,
+    addFinancialTransaction,
+    updateFinancialTransaction,
+    deleteFinancialTransaction,
+  } = useStore();
+  const { profile } = useAuth();
+  const mayEdit = profile ? canEdit(profile.role, 'financials') : false;
   const [selectedBatchId, setSelectedBatchId] = useState(useStore.getState().activeBatchId);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
+  const [changeReason, setChangeReason] = useState('');
   const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const selectedBatch = batches.find((b) => b.id === selectedBatchId);
 
@@ -102,27 +119,88 @@ export default function Financials() {
   const totalSalesAmount = batchSales.reduce((sum, s) => sum + s.amount, 0);
   const totalProductionValue = batchProductionLogs.reduce((sum, l) => sum + l.estimatedValue, 0);
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function openCreate() {
+    setEditingId(null);
+    setForm(defaultForm);
+    setChangeReason('');
     setFormError('');
+    setNotice(null);
+    setShowForm(true);
+  }
+
+  function openEdit(t: FinancialTransaction) {
+    setEditingId(t.id);
+    setForm({
+      type: t.type,
+      category: t.category,
+      amount: String(t.amount),
+      description: t.description,
+      date: t.date,
+      donorName: t.donorName,
+    });
+    setChangeReason('');
+    setFormError('');
+    setNotice(null);
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mayEdit) return;
+    setFormError('');
+    setNotice(null);
     const amount = parseFloat(form.amount);
     if (!form.category) return setFormError('Please select a category.');
     if (!amount || amount <= 0) return setFormError('Enter a valid amount greater than 0.');
     if (!form.date) return setFormError('Please select a date.');
+    if (editingId && !changeReason.trim()) {
+      return setFormError('Enter a reason for this change (admin/director will be notified).');
+    }
 
-    const transaction: FinancialTransaction = {
-      id: generateId(),
-      batchId: selectedBatchId,
-      type: form.type,
-      category: form.category,
-      amount,
-      description: form.description,
-      date: form.date,
-      donorName: form.type === 'income' ? form.donorName : '',
-    };
-    addFinancialTransaction(transaction);
-    setForm(defaultForm);
-    setShowForm(false);
+    setSaving(true);
+    try {
+      const payload = {
+        batchId: selectedBatchId,
+        type: form.type,
+        category: form.category,
+        amount,
+        description: form.description,
+        date: form.date,
+        donorName: form.type === 'income' ? form.donorName : '',
+      };
+      if (editingId) {
+        const result = await updateFinancialTransaction(editingId, payload, changeReason);
+        if (result.emailWarning) setNotice(result.emailWarning);
+      } else {
+        await addFinancialTransaction(payload);
+      }
+      setForm(defaultForm);
+      setChangeReason('');
+      setEditingId(null);
+      setShowForm(false);
+    } catch (err) {
+      setFormError(friendlyError(err, 'Could not save transaction.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(t: FinancialTransaction) {
+    if (!mayEdit) return;
+    const reason = window.prompt(
+      `Delete this ${t.type} (${t.category}, ${formatCurrency(t.amount)})?\n\nEnter a reason (required — admin/director will be notified):`
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setNotice('Delete cancelled — a reason is required.');
+      return;
+    }
+    try {
+      const result = await deleteFinancialTransaction(t.id, reason);
+      if (result.emailWarning) setNotice(result.emailWarning);
+    } catch (err) {
+      setNotice(friendlyError(err, 'Could not delete transaction.'));
+    }
   }
 
   const categoryOptions = form.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
@@ -149,15 +227,28 @@ export default function Financials() {
             </select>
             <ChevronDown className="absolute right-2 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Add Transaction
-          </button>
+          {mayEdit && (
+            <button
+              onClick={() => {
+                if (showForm) {
+                  setShowForm(false);
+                  setEditingId(null);
+                } else {
+                  openCreate();
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Add Transaction
+            </button>
+          )}
         </div>
       </div>
+
+      {notice && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{notice}</p>
+      )}
 
       {/* Budget Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -233,7 +324,7 @@ export default function Financials() {
           />
         </div>
         <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-          <span>$0</span>
+          <span>{formatCurrency(0)}</span>
           <span>{formatCurrency(budgetAllocated)} allocated</span>
         </div>
         {utilizationPct >= 90 && (
@@ -244,10 +335,12 @@ export default function Financials() {
         )}
       </div>
 
-      {/* Add Transaction Form */}
-      {showForm && (
+      {/* Add / Edit Transaction Form */}
+      {showForm && mayEdit && (
         <div className="bg-white rounded-xl border border-primary-200 shadow-sm p-5">
-          <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">Add Transaction</h3>
+          <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">
+            {editingId ? 'Edit Transaction' : 'Add Transaction'}
+          </h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -273,7 +366,7 @@ export default function Financials() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Amount (USD)</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Amount ({currencyCode})</label>
                 <input
                   type="number"
                   min="1"
@@ -314,6 +407,21 @@ export default function Financials() {
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
                 />
               </div>
+              {editingId && (
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    Reason for change * <span className="font-normal text-gray-400">(notifies admin &amp; director)</span>
+                  </label>
+                  <textarea
+                    required
+                    rows={2}
+                    value={changeReason}
+                    onChange={(e) => setChangeReason(e.target.value)}
+                    placeholder="Why is this transaction being corrected?"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                  />
+                </div>
+              )}
             </div>
             {formError && (
               <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{formError}</p>
@@ -321,13 +429,20 @@ export default function Financials() {
             <div className="flex gap-2 pt-1">
               <button
                 type="submit"
-                className="px-4 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 transition-colors"
+                disabled={saving}
+                className="px-4 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-60"
               >
-                Save Transaction
+                {saving ? 'Saving…' : editingId ? 'Update Transaction' : 'Save Transaction'}
               </button>
               <button
                 type="button"
-                onClick={() => { setShowForm(false); setForm(defaultForm); setFormError(''); }}
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingId(null);
+                  setForm(defaultForm);
+                  setChangeReason('');
+                  setFormError('');
+                }}
                 className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
               >
                 Cancel
@@ -353,6 +468,7 @@ export default function Financials() {
                     <th className="text-left py-2 font-semibold text-gray-500 text-xs">Donor</th>
                     <th className="text-right py-2 font-semibold text-gray-500 text-xs">Amount</th>
                     <th className="text-right py-2 font-semibold text-gray-500 text-xs">Date</th>
+                    {mayEdit && <th className="text-right py-2 font-semibold text-gray-500 text-xs">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -368,6 +484,16 @@ export default function Financials() {
                       </td>
                       <td className="py-2.5 text-right font-semibold text-green-700">{formatCurrency(t.amount)}</td>
                       <td className="py-2.5 text-right text-gray-400 text-xs">{formatDate(t.date)}</td>
+                      {mayEdit && (
+                        <td className="py-2.5 text-right">
+                          <button type="button" onClick={() => openEdit(t)} className="p-1.5 text-gray-400 hover:text-primary-600" title="Edit">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" onClick={() => handleDelete(t)} className="p-1.5 text-gray-400 hover:text-red-600" title="Delete">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -375,7 +501,7 @@ export default function Financials() {
                   <tr className="border-t-2 border-gray-200">
                     <td colSpan={2} className="py-2.5 font-bold text-xs text-gray-600">Total Income</td>
                     <td className="py-2.5 text-right font-bold text-green-700">{formatCurrency(totalIncome)}</td>
-                    <td />
+                    <td colSpan={mayEdit ? 2 : 1} />
                   </tr>
                 </tfoot>
               </table>
@@ -483,6 +609,7 @@ export default function Financials() {
                   <th className="text-left py-2 font-semibold text-gray-500 text-xs">Description</th>
                   <th className="text-right py-2 font-semibold text-gray-500 text-xs">Amount</th>
                   <th className="text-right py-2 font-semibold text-gray-500 text-xs">Date</th>
+                  {mayEdit && <th className="text-right py-2 font-semibold text-gray-500 text-xs">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -496,6 +623,16 @@ export default function Financials() {
                     <td className="py-2.5 text-gray-600 text-xs max-w-[200px]">{t.description}</td>
                     <td className="py-2.5 text-right font-semibold text-red-600">{formatCurrency(t.amount)}</td>
                     <td className="py-2.5 text-right text-gray-400 text-xs">{formatDate(t.date)}</td>
+                    {mayEdit && (
+                      <td className="py-2.5 text-right whitespace-nowrap">
+                        <button type="button" onClick={() => openEdit(t)} className="p-1.5 text-gray-400 hover:text-primary-600" title="Edit">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button type="button" onClick={() => handleDelete(t)} className="p-1.5 text-gray-400 hover:text-red-600" title="Delete">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

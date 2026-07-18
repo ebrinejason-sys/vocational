@@ -38,6 +38,64 @@ export interface VulnerabilityAssessment {
   familyStatus: 'orphan' | 'single_parent' | 'both_parents' | 'street_connected';
   hasDisability: boolean;
   disabilityDetails: string;
+  /** Why they need / want to join the training (after vulnerability). */
+  whyNeedTraining: string;
+  /** Can attend daily for the full ~6-month programme. */
+  canAttendDailySixMonths: boolean | null;
+  /** Why they chose their selected trade. */
+  reasonForTrade: string;
+}
+
+export type InterviewDecision = 'pending' | 'selected' | 'waitlist' | 'rejected';
+
+export type InterviewStartAvailability = 'immediately' | 'after_month' | 'not_sure' | 'other';
+
+export interface InterviewScores {
+  vulnerability: number; // 0–10
+  motivation: number; // 0–6
+  availability: number; // 0–6
+  ageSuitability: number; // 0–4
+  opennessToFaith: number; // 0–4
+  conductAttitude: number; // 0–5
+  riskFlags: number; // −5 to 0 (deduction)
+}
+
+export interface InterviewResponses {
+  maritalStatus: string;
+  livelihoodSource: string;
+  dailyRoutine: string;
+  spouseAware: string;
+  trainingInterfere: boolean | null;
+  interferePlan: string;
+  whyAttend: string;
+  whyThisTrade: string;
+  startAvailability: InterviewStartAvailability | '';
+  startAvailabilityOther: string;
+  canTravelDaily: boolean | null;
+  vulnerabilityFlags: string[];
+  vulnerabilityOther: string;
+  faithDevotions: 'yes' | 'no' | 'not_sure' | '';
+  openToMentorship: 'yes' | 'no' | 'somewhat' | '';
+  appearanceNotes: string;
+  politenessNotes: string;
+  substanceAbuseNotes: string;
+  communicationNotes: string;
+  overallImpressionNotes: string;
+}
+
+export interface TraineeInterview {
+  id: string;
+  traineeId: string;
+  batchId: string;
+  interviewDate: string;
+  responses: InterviewResponses;
+  scores: InterviewScores;
+  totalScore: number;
+  panelNotes: string;
+  panelistNames: string;
+  decision: InterviewDecision;
+  createdBy: string | null;
+  createdAt: string;
 }
 
 export interface Trainee {
@@ -162,6 +220,18 @@ export interface FinancialTransaction {
   description: string;
   date: string;
   donorName: string;
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  kind: string;
+  title: string;
+  body: string;
+  entityType: string | null;
+  entityId: string | null;
+  readAt: string | null;
+  createdAt: string;
 }
 
 export interface StarterKit {

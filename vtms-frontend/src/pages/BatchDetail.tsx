@@ -13,7 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import {
   cn, formatCurrency, formatDate, getVulnerabilityLabel, getAttendanceRate,
-  friendlyError,
+  friendlyError, getDisplayCurrency,
 } from '../lib/utils';
 import { COMPETENCY_LEVEL_LABELS, TRADE_OPTIONS } from '../types';
 import type { BatchStatus, CompetencyLevel, TradeType } from '../types';
@@ -733,7 +733,7 @@ export default function BatchDetail() {
                 <input type="date" className={inputCls} value={editForm.endDate} onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Budget (USD)</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Budget ({getDisplayCurrency()})</label>
                 <input className={inputCls} value={editForm.budgetAllocated} onChange={(e) => setEditForm({ ...editForm, budgetAllocated: e.target.value })} />
               </div>
               <div>

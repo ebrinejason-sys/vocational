@@ -133,6 +133,7 @@ export default function TraineeProfile() {
   const {
     trainees, batches, competencyAssessments, modules,
     attendanceRecords, caseNotes, alumniFollowUps, jobPlacements,
+    traineeInterviews,
     updateTrainee, pauseTrainee, resumeTrainee, deleteTrainee,
   } = useStore();
 
@@ -198,6 +199,14 @@ export default function TraineeProfile() {
   const myJobPlacements = useMemo(
     () => jobPlacements.filter((p) => p.traineeId === id),
     [jobPlacements, id]
+  );
+
+  const myInterviews = useMemo(
+    () =>
+      traineeInterviews
+        .filter((i) => i.traineeId === id)
+        .sort((a, b) => b.interviewDate.localeCompare(a.interviewDate)),
+    [traineeInterviews, id]
   );
 
   const latestJob = myJobPlacements[myJobPlacements.length - 1] ?? null;
@@ -548,6 +557,65 @@ export default function TraineeProfile() {
             {trainee.vulnerabilityScore}/100 — {vLabel}
           </span>
         </div>
+      </InfoCard>
+
+      <InfoCard title="Motivation & Availability" icon={Heart}>
+        <div className="divide-y divide-gray-50">
+          <InfoRow
+            label="Why they need training"
+            value={va.whyNeedTraining?.trim() || '—'}
+          />
+          <InfoRow
+            label="Can attend daily (6 months)"
+            value={
+              va.canAttendDailySixMonths === true
+                ? 'Yes'
+                : va.canAttendDailySixMonths === false
+                  ? 'No'
+                  : '—'
+            }
+          />
+          <InfoRow
+            label="Reason for selecting trade"
+            value={va.reasonForTrade?.trim() || '—'}
+          />
+        </div>
+      </InfoCard>
+
+      <InfoCard title="Interview Scoresheets" icon={ClipboardList}>
+        {myInterviews.length === 0 ? (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm text-gray-400">No interview recorded yet.</p>
+            <Link
+              to="/interviews"
+              className="text-sm font-medium text-primary-600 hover:underline"
+            >
+              Open Interviews →
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {myInterviews.map((i) => (
+              <div
+                key={i.id}
+                className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-gray-50 last:border-0"
+              >
+                <div>
+                  <p className="text-sm font-medium text-gray-800">
+                    {formatDate(i.interviewDate)} · {i.totalScore}/40
+                  </p>
+                  <p className="text-xs text-gray-500 capitalize">{i.decision}</p>
+                </div>
+                <Link
+                  to="/interviews"
+                  className="text-xs font-medium text-primary-600 hover:underline"
+                >
+                  View on Interviews
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
       </InfoCard>
 
       {/* ── Competency Progress ── */}

@@ -3,12 +3,14 @@ import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
 import { resumeBatchStatus, resumeTraineeStatus, assertNoDependencies } from '../lib/lifecycle';
 import { countBatchDependencies, countTraineeDependencies } from '../lib/deleteGuards';
-import { friendlyError } from '../lib/utils';
+import { friendlyError, setDisplayCurrency, type CurrencyCode } from '../lib/utils';
+import { notifyFinancialChange } from '../lib/financialNotify';
 import type {
   Batch, BatchStatus, BatchTradeAssignment, Trainee, Module, CompetencyAssessment, AttendanceRecord,
   CaseNote, InventoryItem, InventoryUsage, ProcurementRequest,
   ProductionLog, Sale, FinancialTransaction, StarterKit,
-  AlumniFollowUp, JobPlacement, TradeType,
+  AlumniFollowUp, JobPlacement, TradeType, TraineeInterview, InterviewResponses, InterviewScores,
+  InterviewDecision, VulnerabilityAssessment, AppNotification,
 } from '../types';
 import {
   SEED_MODULES, SEED_COMPETENCY_ASSESSMENTS,
@@ -16,6 +18,82 @@ import {
   SEED_PRODUCTION_LOGS, SEED_SALES, SEED_FINANCIALS,
   SEED_STARTER_KITS, SEED_ALUMNI_FOLLOWUPS, SEED_JOB_PLACEMENTS,
 } from './seed';
+
+const EMPTY_VULNERABILITY: VulnerabilityAssessment = {
+  housingStatus: 'rented',
+  foodSecurity: 'adequate',
+  previousEducation: 'primary',
+  familyStatus: 'both_parents',
+  hasDisability: false,
+  disabilityDetails: '',
+  whyNeedTraining: '',
+  canAttendDailySixMonths: null,
+  reasonForTrade: '',
+};
+
+function normalizeVulnerabilityAssessment(
+  raw: Partial<VulnerabilityAssessment> | null | undefined
+): VulnerabilityAssessment {
+  return {
+    ...EMPTY_VULNERABILITY,
+    ...(raw ?? {}),
+    whyNeedTraining: raw?.whyNeedTraining ?? '',
+    canAttendDailySixMonths:
+      raw?.canAttendDailySixMonths === true || raw?.canAttendDailySixMonths === false
+        ? raw.canAttendDailySixMonths
+        : null,
+    reasonForTrade: raw?.reasonForTrade ?? '',
+  };
+}
+
+export function emptyInterviewResponses(): InterviewResponses {
+  return {
+    maritalStatus: '',
+    livelihoodSource: '',
+    dailyRoutine: '',
+    spouseAware: '',
+    trainingInterfere: null,
+    interferePlan: '',
+    whyAttend: '',
+    whyThisTrade: '',
+    startAvailability: '',
+    startAvailabilityOther: '',
+    canTravelDaily: null,
+    vulnerabilityFlags: [],
+    vulnerabilityOther: '',
+    faithDevotions: '',
+    openToMentorship: '',
+    appearanceNotes: '',
+    politenessNotes: '',
+    substanceAbuseNotes: '',
+    communicationNotes: '',
+    overallImpressionNotes: '',
+  };
+}
+
+export function emptyInterviewScores(): InterviewScores {
+  return {
+    vulnerability: 0,
+    motivation: 0,
+    availability: 0,
+    ageSuitability: 0,
+    opennessToFaith: 0,
+    conductAttitude: 0,
+    riskFlags: 0,
+  };
+}
+
+export function computeInterviewTotal(scores: InterviewScores): number {
+  return (
+    scores.vulnerability +
+    scores.motivation +
+    scores.availability +
+    scores.ageSuitability +
+    scores.opennessToFaith +
+    scores.conductAttitude +
+    scores.riskFlags
+  );
+}
 
 // ---- Supabase row <-> app-model mapping (batches, trainees, inventory) —
 // remaining domains stay local-seeded until wired ----
@@ -99,10 +177,7 @@ function traineeFromRow(row: TraineeRow): Trainee {
     emergencyPhone: row.emergency_contact_phone,
     mobilizationSource: row.mobilization_source,
     vulnerabilityScore: row.vulnerability_score,
-    vulnerabilityAssessment: row.vulnerability_assessment ?? {
-      housingStatus: 'rented', foodSecurity: 'adequate', previousEducation: 'primary',
-      familyStatus: 'both_parents', hasDisability: false, disabilityDetails: '',
-    },
+    vulnerabilityAssessment: normalizeVulnerabilityAssessment(row.vulnerability_assessment),
     status: row.status as Trainee['status'],
     graduationDate: row.graduation_date,
     photo: null,
@@ -247,6 +322,121 @@ async function mapProcurementRows(rows: ProcurementRequestRow[]): Promise<Procur
   return rows.map((r) => procurementFromRow(r, nameById));
 }
 
+interface TraineeInterviewRow {
+  id: string;
+  trainee_id: string;
+  batch_id: string | null;
+  interview_date: string;
+  responses: InterviewResponses | null;
+  scores: InterviewScores | null;
+  total_score: number;
+  panel_notes: string | null;
+  panelist_names: string | null;
+  decision: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+function interviewFromRow(row: TraineeInterviewRow): TraineeInterview {
+  return {
+    id: row.id,
+    traineeId: row.trainee_id,
+    batchId: row.batch_id ?? '',
+    interviewDate: row.interview_date,
+    responses: { ...emptyInterviewResponses(), ...(row.responses ?? {}) },
+    scores: { ...emptyInterviewScores(), ...(row.scores ?? {}) },
+    totalScore: row.total_score ?? 0,
+    panelNotes: row.panel_notes ?? '',
+    panelistNames: row.panelist_names ?? '',
+    decision: row.decision as InterviewDecision,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function interviewToRow(
+  input: Omit<TraineeInterview, 'id' | 'createdAt'> & { id?: string }
+) {
+  const scores = input.scores;
+  return {
+    trainee_id: input.traineeId,
+    batch_id: emptyToNull(input.batchId),
+    interview_date: input.interviewDate,
+    responses: input.responses,
+    scores,
+    total_score: computeInterviewTotal(scores),
+    panel_notes: input.panelNotes,
+    panelist_names: input.panelistNames,
+    decision: input.decision,
+    created_by: emptyToNull(input.createdBy),
+  };
+}
+
+interface FinancialTransactionRow {
+  id: string;
+  batch_id: string | null;
+  category: string;
+  transaction_type: string;
+  amount: number | string;
+  description: string | null;
+  transaction_date: string | null;
+  donor_id: string | null;
+  recorded_by: string | null;
+}
+
+function financialFromRow(row: FinancialTransactionRow): FinancialTransaction {
+  return {
+    id: row.id,
+    batchId: row.batch_id ?? '',
+    category: row.category,
+    type: row.transaction_type === 'expense' ? 'expense' : 'income',
+    amount: Number(row.amount) || 0,
+    description: row.description ?? '',
+    date: row.transaction_date ?? '',
+    donorName: row.donor_id ?? '',
+  };
+}
+
+function financialToRow(t: Omit<FinancialTransaction, 'id'> & { id?: string }, recordedBy?: string | null) {
+  return {
+    ...(t.id ? { id: t.id } : {}),
+    batch_id: emptyToNull(t.batchId),
+    category: t.category,
+    transaction_type: t.type,
+    amount: t.amount,
+    description: t.description || null,
+    transaction_date: emptyToNull(t.date),
+    donor_id: emptyToNull(t.donorName),
+    ...(recordedBy !== undefined ? { recorded_by: emptyToNull(recordedBy) } : {}),
+  };
+}
+
+interface NotificationRow {
+  id: string;
+  user_id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+function notificationFromRow(row: NotificationRow): AppNotification {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    kind: row.kind,
+    title: row.title,
+    body: row.body ?? '',
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    readAt: row.read_at,
+    createdAt: row.created_at,
+  };
+}
+
 interface VTMSState {
   batches: Batch[];
   trainees: Trainee[];
@@ -263,6 +453,9 @@ interface VTMSState {
   starterKits: StarterKit[];
   alumniFollowUps: AlumniFollowUp[];
   jobPlacements: JobPlacement[];
+  traineeInterviews: TraineeInterview[];
+  currencyCode: CurrencyCode;
+  notifications: AppNotification[];
   activeBatchId: string;
   dataLoaded: boolean;
 
@@ -290,10 +483,28 @@ interface VTMSState {
   fulfillProcurementRequest: (id: string) => Promise<void>;
   addProductionLog: (l: ProductionLog) => void;
   addSale: (s: Sale) => void;
-  addFinancialTransaction: (t: FinancialTransaction) => void;
+  addFinancialTransaction: (t: Omit<FinancialTransaction, 'id'>) => Promise<void>;
+  updateFinancialTransaction: (
+    id: string,
+    updates: Partial<Omit<FinancialTransaction, 'id'>>,
+    reason: string
+  ) => Promise<{ emailWarning?: string }>;
+  deleteFinancialTransaction: (id: string, reason: string) => Promise<{ emailWarning?: string }>;
+  updateCurrencyCode: (code: CurrencyCode, reason: string) => Promise<{ emailWarning?: string }>;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
+  refreshNotifications: () => Promise<void>;
   addStarterKit: (k: StarterKit) => void;
   addAlumniFollowUp: (f: AlumniFollowUp) => void;
   addJobPlacement: (p: JobPlacement) => void;
+  addTraineeInterview: (
+    input: Omit<TraineeInterview, 'id' | 'createdAt' | 'totalScore'>
+  ) => Promise<TraineeInterview>;
+  updateTraineeInterview: (
+    id: string,
+    updates: Partial<Omit<TraineeInterview, 'id' | 'createdAt'>>
+  ) => Promise<void>;
+  deleteTraineeInterview: (id: string) => Promise<void>;
   addBatch: (b: Omit<Batch, 'id'>) => Promise<void>;
   updateBatch: (id: string, updates: Partial<Batch>) => Promise<void>;
   pauseBatch: (id: string) => Promise<void>;
@@ -319,16 +530,33 @@ export const useStore = create<VTMSState>()(
       starterKits: SEED_STARTER_KITS,
       alumniFollowUps: SEED_ALUMNI_FOLLOWUPS,
       jobPlacements: SEED_JOB_PLACEMENTS,
+      traineeInterviews: [],
+      currencyCode: 'USD',
+      notifications: [],
       activeBatchId: '',
       dataLoaded: false,
 
       fetchInitialData: async () => {
-        const [batchResult, traineeResult, itemsResult, usageResult, procurementResult] = await Promise.all([
+        const [
+          batchResult,
+          traineeResult,
+          itemsResult,
+          usageResult,
+          procurementResult,
+          interviewResult,
+          financialResult,
+          settingsResult,
+          notificationsResult,
+        ] = await Promise.all([
           supabase.from('batches').select(BATCH_SELECT).order('start_date', { ascending: false }),
           supabase.from('trainees').select('*'),
           supabase.from('inventory_items').select('*').order('name'),
           supabase.from('inventory_usage').select('*').order('usage_date', { ascending: false }),
           supabase.from('procurement_requests').select(PROCUREMENT_SELECT).order('created_at', { ascending: false }),
+          supabase.from('trainee_interviews').select('*').order('interview_date', { ascending: false }),
+          supabase.from('financial_transactions').select('*').order('transaction_date', { ascending: false }),
+          supabase.from('app_settings').select('currency_code').eq('id', 'org').maybeSingle(),
+          supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50),
         ]);
 
         // Batches/trainees are required; inventory/procurement soft-fail so a
@@ -338,6 +566,10 @@ export const useStore = create<VTMSState>()(
         if (itemsResult.error) console.warn('inventory_items load failed', itemsResult.error);
         if (usageResult.error) console.warn('inventory_usage load failed', usageResult.error);
         if (procurementResult.error) console.warn('procurement_requests load failed', procurementResult.error);
+        if (interviewResult.error) console.warn('trainee_interviews load failed', interviewResult.error);
+        if (financialResult.error) console.warn('financial_transactions load failed', financialResult.error);
+        if (settingsResult.error) console.warn('app_settings load failed', settingsResult.error);
+        if (notificationsResult.error) console.warn('notifications load failed', notificationsResult.error);
 
         const batches = (batchResult.data ?? []).map((r) => batchFromRow(r as BatchRow));
         const trainees = (traineeResult.data ?? []).map((r) => traineeFromRow(r as TraineeRow));
@@ -350,6 +582,17 @@ export const useStore = create<VTMSState>()(
         const procurementRequests = procurementResult.error
           ? []
           : await mapProcurementRows((procurementResult.data ?? []) as ProcurementRequestRow[]);
+        const traineeInterviews = interviewResult.error
+          ? []
+          : (interviewResult.data ?? []).map((r) => interviewFromRow(r as TraineeInterviewRow));
+        const financialTransactions = financialResult.error
+          ? []
+          : (financialResult.data ?? []).map((r) => financialFromRow(r as FinancialTransactionRow));
+        const currencyCode = (settingsResult.data?.currency_code as CurrencyCode | undefined) ?? 'USD';
+        setDisplayCurrency(currencyCode);
+        const notifications = notificationsResult.error
+          ? []
+          : (notificationsResult.data ?? []).map((r) => notificationFromRow(r as NotificationRow));
         const currentActive = get().activeBatchId;
         const activeBatchId = batches.some((b) => b.id === currentActive)
           ? currentActive
@@ -361,6 +604,10 @@ export const useStore = create<VTMSState>()(
           inventoryItems,
           inventoryUsage,
           procurementRequests,
+          traineeInterviews,
+          financialTransactions,
+          currencyCode,
+          notifications,
           activeBatchId,
           dataLoaded: true,
         });
@@ -372,6 +619,10 @@ export const useStore = create<VTMSState>()(
         inventoryItems: [],
         inventoryUsage: [],
         procurementRequests: [],
+        traineeInterviews: [],
+        financialTransactions: [],
+        currencyCode: 'USD',
+        notifications: [],
         activeBatchId: '',
         dataLoaded: false,
       }),
@@ -713,15 +964,246 @@ export const useStore = create<VTMSState>()(
 
       addProductionLog: (l) => set((s) => ({ productionLogs: [...s.productionLogs, l] })),
       addSale: (sl) => set((s) => ({ sales: [...s.sales, sl] })),
-      addFinancialTransaction: (t) => set((s) => ({ financialTransactions: [...s.financialTransactions, t] })),
+      addFinancialTransaction: async (t) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+          .from('financial_transactions')
+          .insert(financialToRow(t, user?.id ?? null))
+          .select('*')
+          .single();
+        if (error) throw error;
+        const created = financialFromRow(data as FinancialTransactionRow);
+        set((s) => ({ financialTransactions: [created, ...s.financialTransactions] }));
+      },
+
+      updateFinancialTransaction: async (id, updates, reason) => {
+        const trimmed = reason.trim();
+        if (!trimmed) throw new Error('A reason is required to change a transaction.');
+        const current = get().financialTransactions.find((t) => t.id === id);
+        if (!current) throw new Error('Transaction not found.');
+        const merged: FinancialTransaction = { ...current, ...updates, id };
+        const { data: { user } } = await supabase.auth.getUser();
+        const row = financialToRow({
+          batchId: merged.batchId,
+          category: merged.category,
+          type: merged.type,
+          amount: merged.amount,
+          description: merged.description,
+          date: merged.date,
+          donorName: merged.donorName,
+        });
+        const { data, error } = await supabase
+          .from('financial_transactions')
+          .update({
+            ...row,
+            updated_at: new Date().toISOString(),
+            updated_by: user?.id ?? null,
+          })
+          .eq('id', id)
+          .select('*')
+          .single();
+        if (error) throw error;
+        const updated = financialFromRow(data as FinancialTransactionRow);
+        const { error: logError } = await supabase.from('financial_change_log').insert({
+          action: 'transaction_update',
+          entity_type: 'financial_transaction',
+          entity_id: id,
+          old_values: current,
+          new_values: updated,
+          reason: trimmed,
+          changed_by: user?.id ?? null,
+        });
+        if (logError) throw logError;
+        set((s) => ({
+          financialTransactions: s.financialTransactions.map((t) => (t.id === id ? updated : t)),
+        }));
+        const notify = await notifyFinancialChange({
+          action: 'transaction_update',
+          reason: trimmed,
+          title: 'Financial transaction updated',
+          body: `${updated.type} · ${updated.category} · ${updated.amount} (was ${current.amount})`,
+          entityType: 'financial_transaction',
+          entityId: id,
+          oldValues: current as unknown as Record<string, unknown>,
+          newValues: updated as unknown as Record<string, unknown>,
+        });
+        await get().refreshNotifications();
+        return { emailWarning: notify.emailWarning };
+      },
+
+      deleteFinancialTransaction: async (id, reason) => {
+        const trimmed = reason.trim();
+        if (!trimmed) throw new Error('A reason is required to delete a transaction.');
+        const current = get().financialTransactions.find((t) => t.id === id);
+        if (!current) throw new Error('Transaction not found.');
+        const { data: { user } } = await supabase.auth.getUser();
+        const { error: logError } = await supabase.from('financial_change_log').insert({
+          action: 'transaction_delete',
+          entity_type: 'financial_transaction',
+          entity_id: id,
+          old_values: current,
+          new_values: null,
+          reason: trimmed,
+          changed_by: user?.id ?? null,
+        });
+        if (logError) throw logError;
+        const { error } = await supabase.from('financial_transactions').delete().eq('id', id);
+        if (error) throw error;
+        set((s) => ({
+          financialTransactions: s.financialTransactions.filter((t) => t.id !== id),
+        }));
+        const notify = await notifyFinancialChange({
+          action: 'transaction_delete',
+          reason: trimmed,
+          title: 'Financial transaction deleted',
+          body: `${current.type} · ${current.category} · ${current.amount}`,
+          entityType: 'financial_transaction',
+          entityId: id,
+          oldValues: current as unknown as Record<string, unknown>,
+          newValues: null,
+        });
+        await get().refreshNotifications();
+        return { emailWarning: notify.emailWarning };
+      },
+
+      updateCurrencyCode: async (code, reason) => {
+        const trimmed = reason.trim();
+        if (!trimmed) throw new Error('A reason is required to change currency.');
+        const previous = get().currencyCode;
+        if (previous === code) throw new Error('Currency is already set to that value.');
+        const { data: { user } } = await supabase.auth.getUser();
+        const { error } = await supabase
+          .from('app_settings')
+          .update({
+            currency_code: code,
+            updated_at: new Date().toISOString(),
+            updated_by: user?.id ?? null,
+          })
+          .eq('id', 'org');
+        if (error) throw error;
+        const { error: logError } = await supabase.from('financial_change_log').insert({
+          action: 'currency_change',
+          entity_type: 'app_settings',
+          entity_id: 'org',
+          old_values: { currency_code: previous },
+          new_values: { currency_code: code },
+          reason: trimmed,
+          changed_by: user?.id ?? null,
+        });
+        if (logError) throw logError;
+        setDisplayCurrency(code);
+        set({ currencyCode: code });
+        const notify = await notifyFinancialChange({
+          action: 'currency_change',
+          reason: trimmed,
+          title: 'Organisation currency changed',
+          body: `Currency changed from ${previous} to ${code}. Historical amounts were not converted.`,
+          entityType: 'app_settings',
+          entityId: 'org',
+          oldValues: { currency_code: previous },
+          newValues: { currency_code: code },
+        });
+        await get().refreshNotifications();
+        return { emailWarning: notify.emailWarning };
+      },
+
+      refreshNotifications: async () => {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) {
+          console.warn('notifications refresh failed', error);
+          return;
+        }
+        set({
+          notifications: (data ?? []).map((r) => notificationFromRow(r as NotificationRow)),
+        });
+      },
+
+      markNotificationRead: async (id) => {
+        const { error } = await supabase
+          .from('notifications')
+          .update({ read_at: new Date().toISOString() })
+          .eq('id', id);
+        if (error) throw error;
+        set((s) => ({
+          notifications: s.notifications.map((n) =>
+            n.id === id ? { ...n, readAt: new Date().toISOString() } : n
+          ),
+        }));
+      },
+
+      markAllNotificationsRead: async () => {
+        const unread = get().notifications.filter((n) => !n.readAt).map((n) => n.id);
+        if (!unread.length) return;
+        const { error } = await supabase
+          .from('notifications')
+          .update({ read_at: new Date().toISOString() })
+          .in('id', unread);
+        if (error) throw error;
+        const now = new Date().toISOString();
+        set((s) => ({
+          notifications: s.notifications.map((n) => (n.readAt ? n : { ...n, readAt: now })),
+        }));
+      },
       addStarterKit: (k) => set((s) => ({ starterKits: [...s.starterKits, k] })),
       addAlumniFollowUp: (f) => set((s) => ({ alumniFollowUps: [...s.alumniFollowUps, f] })),
       addJobPlacement: (p) => set((s) => ({ jobPlacements: [...s.jobPlacements, p] })),
+
+      addTraineeInterview: async (input) => {
+        const payload = interviewToRow(input);
+        const { data, error } = await supabase
+          .from('trainee_interviews')
+          .insert(payload)
+          .select('*')
+          .single();
+        if (error) throw error;
+        const interview = interviewFromRow(data as TraineeInterviewRow);
+        set((s) => ({ traineeInterviews: [interview, ...s.traineeInterviews] }));
+        return interview;
+      },
+
+      updateTraineeInterview: async (id, updates) => {
+        const current = get().traineeInterviews.find((i) => i.id === id);
+        if (!current) throw new Error(`Interview ${id} not found`);
+        const merged: TraineeInterview = {
+          ...current,
+          ...updates,
+          responses: updates.responses
+            ? { ...emptyInterviewResponses(), ...updates.responses }
+            : current.responses,
+          scores: updates.scores
+            ? { ...emptyInterviewScores(), ...updates.scores }
+            : current.scores,
+        };
+        merged.totalScore = computeInterviewTotal(merged.scores);
+        const { data, error } = await supabase
+          .from('trainee_interviews')
+          .update(interviewToRow(merged))
+          .eq('id', id)
+          .select('*')
+          .single();
+        if (error) throw error;
+        const interview = interviewFromRow(data as TraineeInterviewRow);
+        set((s) => ({
+          traineeInterviews: s.traineeInterviews.map((i) => (i.id === id ? interview : i)),
+        }));
+      },
+
+      deleteTraineeInterview: async (id) => {
+        const { error } = await supabase.from('trainee_interviews').delete().eq('id', id);
+        if (error) throw error;
+        set((s) => ({
+          traineeInterviews: s.traineeInterviews.filter((i) => i.id !== id),
+        }));
+      },
     }),
     {
       name: 'vtms-store',
-      // v4: inventory/procurement move to Supabase — drop local copies.
-      version: 4,
+      // v6: financials + currency + notifications on Supabase.
+      version: 6,
       migrate: (persisted) => {
         if (persisted && typeof persisted === 'object') {
           const state = persisted as Record<string, unknown>;
@@ -730,6 +1212,10 @@ export const useStore = create<VTMSState>()(
           delete state.inventoryItems;
           delete state.inventoryUsage;
           delete state.procurementRequests;
+          delete state.traineeInterviews;
+          delete state.financialTransactions;
+          delete state.currencyCode;
+          delete state.notifications;
           delete state.dataLoaded;
         }
         return persisted as VTMSState;
@@ -742,6 +1228,10 @@ export const useStore = create<VTMSState>()(
           inventoryItems: _inventoryItems,
           inventoryUsage: _inventoryUsage,
           procurementRequests: _procurementRequests,
+          traineeInterviews: _traineeInterviews,
+          financialTransactions: _financialTransactions,
+          currencyCode: _currencyCode,
+          notifications: _notifications,
           dataLoaded: _dataLoaded,
           ...rest
         } = s;

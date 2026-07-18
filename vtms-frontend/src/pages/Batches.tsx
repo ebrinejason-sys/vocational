@@ -7,7 +7,7 @@ import {
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
-import { cn, formatCurrency, formatDate, friendlyError, formatBatchTrades, formatBatchTrainers } from '../lib/utils';
+import { cn, formatCurrency, formatDate, friendlyError, formatBatchTrades, formatBatchTrainers, getDisplayCurrency } from '../lib/utils';
 import { TRADE_OPTIONS, type TradeType, type BatchStatus } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -226,7 +226,7 @@ export default function Batches() {
                 onChange={(e) => setForm({ ...form, startDate: e.target.value })}
               />
             </Field>
-            <Field label="Budget (USD) *" error={errors.budgetAllocated}>
+            <Field label={`Budget (${getDisplayCurrency()}) *`} error={errors.budgetAllocated}>
               <input
                 className={inputCls(errors.budgetAllocated)}
                 value={form.budgetAllocated}
