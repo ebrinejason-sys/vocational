@@ -1,8 +1,9 @@
-import { FileSpreadsheet, FileText, Printer } from 'lucide-react';
+import { FileSpreadsheet, FileText, FileType, Printer } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   exportToExcel,
   exportToPdf,
+  exportToWord,
   printSection,
   type ExportColumn,
   type ExportRow,
@@ -51,6 +52,15 @@ export default function ExportToolbar({
       >
         <FileText className="w-3.5 h-3.5" />
         PDF
+      </button>
+      <button
+        type="button"
+        onClick={() => exportToWord(title, columns, rows, base, subtitle)}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+        title="Download Word"
+      >
+        <FileType className="w-3.5 h-3.5" />
+        Word
       </button>
       <button
         type="button"

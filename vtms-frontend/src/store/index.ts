@@ -276,13 +276,14 @@ interface ProcurementRequestRow {
   estimated_cost: string | number | null;
   status: string;
   requested_by: string | null;
+  assigned_to: string | null;
   created_at: string;
   inventory_items?: { name: string } | { name: string }[] | null;
 }
 
 /** Avoid profiles!…fkey embeds — those 400 until the migration FKs exist. */
 const PROCUREMENT_SELECT =
-  'id, item_id, quantity_requested, estimated_cost, status, requested_by, created_at, inventory_items(name)';
+  'id, item_id, quantity_requested, estimated_cost, status, requested_by, assigned_to, created_at, inventory_items(name)';
 
 function embedOne<T>(value: T | T[] | null | undefined): T | null {
   if (value == null) return null;
@@ -313,12 +314,14 @@ function procurementFromRow(
     estimatedCost: Number(row.estimated_cost ?? 0),
     status: row.status as ProcurementRequest['status'],
     requestedBy: (row.requested_by && nameById.get(row.requested_by)) || 'Staff',
+    assignedToId: row.assigned_to ?? null,
+    assignedToName: (row.assigned_to && nameById.get(row.assigned_to)) || '—',
     createdAt: row.created_at.slice(0, 10),
   };
 }
 
 async function mapProcurementRows(rows: ProcurementRequestRow[]): Promise<ProcurementRequest[]> {
-  const nameById = await profileNamesById(rows.map((r) => r.requested_by));
+  const nameById = await profileNamesById(rows.flatMap((r) => [r.requested_by, r.assigned_to]));
   return rows.map((r) => procurementFromRow(r, nameById));
 }
 
@@ -477,8 +480,9 @@ interface VTMSState {
     itemId: string;
     quantityRequested: number;
     estimatedCost: number;
+    assignedToId?: string | null;
   }) => Promise<void>;
-  updateProcurementRequest: (id: string, updates: Partial<Pick<ProcurementRequest, 'status'>>) => Promise<void>;
+  updateProcurementRequest: (id: string, updates: Partial<Pick<ProcurementRequest, 'status' | 'assignedToId'>>) => Promise<void>;
   /** Mark purchased and add the requested quantity into on-hand stock. */
   fulfillProcurementRequest: (id: string) => Promise<void>;
   addProductionLog: (l: ProductionLog) => void;
@@ -883,6 +887,7 @@ export const useStore = create<VTMSState>()(
             estimated_cost: input.estimatedCost,
             status: 'pending',
             requested_by: auth.user?.id ?? null,
+            assigned_to: input.assignedToId ?? null,
           })
           .select(PROCUREMENT_SELECT)
           .single();
@@ -898,6 +903,7 @@ export const useStore = create<VTMSState>()(
         if (!current) throw new Error(`Procurement request ${id} not found`);
         const row: Record<string, unknown> = {};
         if (updates.status) row.status = updates.status;
+        if (updates.assignedToId !== undefined) row.assigned_to = updates.assignedToId;
         if (updates.status === 'approved') {
           const { data: auth } = await supabase.auth.getUser();
           row.approved_by = auth.user?.id ?? null;
@@ -1074,12 +1080,12 @@ export const useStore = create<VTMSState>()(
         const { data: { user } } = await supabase.auth.getUser();
         const { error } = await supabase
           .from('app_settings')
-          .update({
+          .upsert({
+            id: 'org',
             currency_code: code,
             updated_at: new Date().toISOString(),
             updated_by: user?.id ?? null,
-          })
-          .eq('id', 'org');
+          }, { onConflict: 'id' });
         if (error) throw error;
         const { error: logError } = await supabase.from('financial_change_log').insert({
           action: 'currency_change',

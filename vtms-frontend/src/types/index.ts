@@ -9,6 +9,20 @@ export type EmploymentStatus = 'employed' | 'self_employed' | 'unemployed' | 'fu
 export type ProcurementStatus = 'pending' | 'approved' | 'purchased' | 'cancelled';
 export type TransactionType = 'income' | 'expense';
 export type StarterKitStatus = 'in_use' | 'sold' | 'lost' | 'damaged' | 'not_issued';
+export type TraineeDocumentType =
+  | 'national_id'
+  | 'recommendation_letter'
+  | 'birth_certificate'
+  | 'signed_rules'
+  | 'photo';
+
+export const TRAINEE_DOCUMENT_LABELS: Record<TraineeDocumentType, string> = {
+  national_id: 'National ID',
+  recommendation_letter: 'Recommendation Letter',
+  birth_certificate: 'Birth Certificate',
+  signed_rules: 'Signed Rules & Regulations',
+  photo: 'Trainee Photo',
+};
 
 export const TRADE_OPTIONS: TradeType[] = ['Carpentry', 'Tailoring', 'Electricity', 'Masonry'];
 
@@ -189,7 +203,20 @@ export interface ProcurementRequest {
   estimatedCost: number;
   status: ProcurementStatus;
   requestedBy: string;
+  assignedToId: string | null;
+  assignedToName: string;
   createdAt: string;
+}
+
+export interface TraineeDocument {
+  id: string;
+  traineeId: string;
+  documentType: TraineeDocumentType;
+  fileName: string;
+  storagePath: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  uploadedAt: string;
 }
 
 export interface ProductionLog {
@@ -251,6 +278,7 @@ export interface AlumniFollowUp {
   currentEmployer: string;
   monthlyIncome: number;
   starterKitStatus: StarterKitStatus;
+  continuingInTrade: boolean;
   notes: string;
 }
 

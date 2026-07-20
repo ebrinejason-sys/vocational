@@ -72,6 +72,27 @@ export function exportToPdf(
   doc.save(filename.endsWith('.pdf') ? filename : `${filename}.pdf`);
 }
 
+/** Export rows as a Word-compatible document (.doc HTML). */
+export function exportToWord(
+  title: string,
+  columns: ExportColumn[],
+  rows: ExportRow[],
+  filename: string,
+  subtitle?: string,
+) {
+  const header = columns.map((c) => `<th>${c.label}</th>`).join('');
+  const body = rows.map((row) => {
+    const cells = columns.map((c) => `<td>${cellValue(row, c.key)}</td>`).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head><body>
+    <h1>${title}</h1>
+    ${subtitle ? `<p>${subtitle}</p>` : ''}
+    <table border="1" cellpadding="4" cellspacing="0"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>
+  </body></html>`;
+  downloadBlob(new Blob([html], { type: 'application/msword' }), filename.endsWith('.doc') ? filename : `${filename}.doc`);
+}
+
 /** Open the browser print dialog for a page section. */
 export function printSection(elementId: string, title?: string) {
   const el = document.getElementById(elementId);

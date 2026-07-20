@@ -12,6 +12,7 @@ import { useStore } from '../store';
 import { cn, formatCurrency, formatDate, formatBatchTrainers } from '../lib/utils';
 import { COMPETENCY_LEVEL_LABELS, CASE_CATEGORY_LABELS } from '../types';
 import type { CompetencyLevel } from '../types';
+import ExportToolbar from '../components/ExportToolbar';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -208,7 +209,29 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" id="app-print-area">
+      <ExportToolbar
+        title="SCM Performance Dashboard"
+        filename="dashboard-summary"
+        columns={[
+          { key: 'metric', label: 'Metric' },
+          { key: 'value', label: 'Value' },
+        ]}
+        rows={[
+          { metric: 'Total trainees', value: totalTrainees },
+          { metric: 'Active trainees (selected batch)', value: activeTrainees },
+          { metric: 'Graduation rate', value: `${graduationRate}%` },
+          { metric: 'Low inventory items', value: lowInventory.length },
+          { metric: 'Critical case notes', value: alertCaseNotes.filter((n) => n.isCritical).length },
+          ...batchComparisonData.map((b) => ({
+            metric: `${b.batch} graduation rate`,
+            value: `${b.gradRate}%`,
+          })),
+        ]}
+        subtitle={batch5 ? `Active batch: ${batch5.name}` : 'Program overview'}
+        printTargetId="app-print-area"
+      />
+
       {/* ── Row 1: Top stats ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

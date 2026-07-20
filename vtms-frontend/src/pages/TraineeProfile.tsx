@@ -13,6 +13,7 @@ import { cn, formatDate, getVulnerabilityLabel, getAttendanceRate, friendlyError
 import { countTraineeDependencies } from '../lib/deleteGuards';
 import { formatDependencyBlock } from '../lib/lifecycle';
 import Modal from '../components/Modal';
+import TraineeDocuments from '../components/TraineeDocuments';
 import { COMPETENCY_LEVEL_LABELS, CASE_CATEGORY_LABELS } from '../types';
 import type { TraineeStatus, CompetencyLevel, TradeType } from '../types';
 
@@ -558,6 +559,11 @@ export default function TraineeProfile() {
           </span>
         </div>
       </InfoCard>
+
+      <TraineeDocuments
+        traineeId={trainee.id}
+        traineeName={`${trainee.firstName} ${trainee.lastName}`}
+      />
 
       <InfoCard title="Motivation & Availability" icon={Heart}>
         <div className="divide-y divide-gray-50">

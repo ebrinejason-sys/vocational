@@ -49,7 +49,7 @@ export default function Layout() {
     (item) => !item.domain || (profile && canView(profile.role, item.domain))
   );
   const adminNav =
-    profile?.role === 'admin' || profile?.role === 'director'
+    profile && (profile.role === 'admin' || profile.role === 'director' || profile.role === 'finance_officer')
       ? [
           ...(profile.role === 'admin'
             ? [{ to: '/admin/staff', icon: ShieldCheck, label: 'Staff' as const, exact: false as const }]

@@ -45,6 +45,7 @@ export default function AdminCurrency() {
         <p className="text-sm text-gray-500 mt-1">
           Current display currency: <span className="font-semibold text-gray-800">{currencyCode}</span>.
           Changing this updates labels and formatting only — historical amounts are not converted.
+          If saving fails, run <code className="text-xs bg-gray-100 px-1 rounded">docs/migrations/2026-07-20-platform-enhancements.sql</code> in Supabase.
         </p>
       </div>
 

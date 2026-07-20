@@ -190,6 +190,7 @@ CREATE TABLE procurement_requests (
     estimated_cost DECIMAL(12,2),
     status TEXT DEFAULT 'pending', -- pending, approved, purchased, cancelled
     requested_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    assigned_to UUID REFERENCES profiles(id) ON DELETE SET NULL,
     approved_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -459,8 +460,8 @@ CREATE POLICY inventory_items_select ON inventory_items FOR SELECT
 CREATE POLICY inventory_items_insert ON inventory_items FOR INSERT
   WITH CHECK (current_role_is(ARRAY['trainer','logistics_officer','admin']::user_role[]));
 CREATE POLICY inventory_items_update ON inventory_items FOR UPDATE
-  USING (current_role_is(ARRAY['trainer','logistics_officer','admin']::user_role[]))
-  WITH CHECK (current_role_is(ARRAY['trainer','logistics_officer','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','logistics_officer','finance_officer','director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['trainer','logistics_officer','finance_officer','director','admin']::user_role[]));
 CREATE POLICY inventory_items_delete ON inventory_items FOR DELETE
   USING (current_role_is(ARRAY['admin']::user_role[]));
 
@@ -524,8 +525,10 @@ ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY app_settings_select ON app_settings FOR SELECT
   USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','logistics_officer','director','admin']::user_role[]));
 CREATE POLICY app_settings_update ON app_settings FOR UPDATE
-  USING (current_role_is(ARRAY['director','admin']::user_role[]))
-  WITH CHECK (current_role_is(ARRAY['director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
+CREATE POLICY app_settings_insert ON app_settings FOR INSERT
+  WITH CHECK (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
 
 ALTER TABLE financial_change_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY financial_change_log_select ON financial_change_log FOR SELECT
@@ -608,5 +611,33 @@ CREATE POLICY trainee_interviews_update ON trainee_interviews FOR UPDATE
   USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]))
   WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 CREATE POLICY trainee_interviews_delete ON trainee_interviews FOR DELETE
-  USING (current_role_is(ARRAY['project_coordinator','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['project_coordinator','finance_officer','director','admin']::user_role[]));
+
+-- Trainee document uploads (national ID, birth cert, recommendation, rules, photo)
+CREATE TABLE trainee_documents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    trainee_id UUID NOT NULL REFERENCES trainees(id) ON DELETE CASCADE,
+    document_type TEXT NOT NULL
+      CHECK (document_type IN ('national_id', 'recommendation_letter', 'birth_certificate', 'signed_rules', 'photo')),
+    file_name TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    mime_type TEXT,
+    file_size INTEGER,
+    uploaded_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (trainee_id, document_type)
+);
+
+CREATE INDEX trainee_documents_trainee_id_idx ON trainee_documents(trainee_id);
+
+ALTER TABLE trainee_documents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY trainee_documents_select ON trainee_documents FOR SELECT
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','logistics_officer','director','admin']::user_role[]));
+CREATE POLICY trainee_documents_insert ON trainee_documents FOR INSERT
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
+CREATE POLICY trainee_documents_update ON trainee_documents FOR UPDATE
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
+CREATE POLICY trainee_documents_delete ON trainee_documents FOR DELETE
+  USING (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
 

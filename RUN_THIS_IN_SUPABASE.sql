@@ -82,3 +82,5 @@ SELECT 'trainees.status values',
 FROM pg_constraint
 WHERE conrelid = 'public.trainees'::regclass
   AND conname = 'trainees_status_check';
+
+-- ALSO RUN: docs/migrations/2026-07-20-platform-enhancements.sql

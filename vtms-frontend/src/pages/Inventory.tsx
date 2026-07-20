@@ -10,6 +10,7 @@ import { canEdit } from '../lib/permissions';
 import { cn, formatCurrency, friendlyError, today, getDisplayCurrency } from '../lib/utils';
 import { TRADE_OPTIONS, type InventoryItem, type TradeType } from '../types';
 import Modal from '../components/Modal';
+import ExportToolbar from '../components/ExportToolbar';
 
 const CATEGORY_COLORS: Record<string, string> = {
   Tool: 'bg-blue-100 text-blue-700',
@@ -71,6 +72,8 @@ export default function Inventory() {
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [editForm, setEditForm] = useState({ quantityOnHand: '', reorderLevel: '', unitCost: '' });
   const [itemForm, setItemForm] = useState<ItemForm>(EMPTY_ITEM);
   const [receiveForm, setReceiveForm] = useState<ReceiveForm>(EMPTY_RECEIVE);
   const [usageForm, setUsageForm] = useState<UsageForm>(EMPTY_USAGE);
@@ -202,8 +205,53 @@ export default function Inventory() {
   const inputCls =
     'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white';
 
+  async function handleSaveStock(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingItem) return;
+    setFormError(null);
+    const qty = Number(editForm.quantityOnHand);
+    const reorder = Number(editForm.reorderLevel);
+    const cost = Number(editForm.unitCost);
+    if ([qty, reorder, cost].some((n) => isNaN(n) || n < 0)) {
+      setFormError('Enter valid non-negative numbers.');
+      return;
+    }
+    try {
+      await updateInventoryItem(editingItem.id, {
+        quantityOnHand: qty,
+        reorderLevel: reorder,
+        unitCost: cost,
+      });
+      setEditingItem(null);
+      setBanner('Stock updated.');
+      setTimeout(() => setBanner(null), 3000);
+    } catch (err) {
+      setFormError(friendlyError(err, 'Failed to update stock.'));
+    }
+  }
+
+  function openEditItem(item: InventoryItem) {
+    setFormError(null);
+    setEditingItem(item);
+    setEditForm({
+      quantityOnHand: String(item.quantityOnHand),
+      reorderLevel: String(item.reorderLevel),
+      unitCost: String(item.unitCost),
+    });
+  }
+
+  const inventoryExportRows = inventoryItems.map((item) => ({
+    name: item.name,
+    category: item.category,
+    onHand: `${item.quantityOnHand} ${item.unit}`,
+    reorder: item.reorderLevel,
+    unitCost: formatCurrency(item.unitCost),
+    value: formatCurrency(item.quantityOnHand * item.unitCost),
+    status: item.quantityOnHand <= item.reorderLevel ? 'Low' : 'OK',
+  }));
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" id="app-print-area">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
@@ -238,6 +286,23 @@ export default function Inventory() {
           {banner}
         </p>
       )}
+
+      <ExportToolbar
+        title="Inventory Stock Report"
+        filename="inventory"
+        columns={[
+          { key: 'name', label: 'Item' },
+          { key: 'category', label: 'Category' },
+          { key: 'onHand', label: 'On Hand' },
+          { key: 'reorder', label: 'Reorder Level' },
+          { key: 'unitCost', label: 'Unit Cost' },
+          { key: 'value', label: 'Value' },
+          { key: 'status', label: 'Status' },
+        ]}
+        rows={inventoryExportRows}
+        subtitle={`${inventoryItems.length} items · ${formatCurrency(totalInventoryValue)} total value`}
+        printTargetId="app-print-area"
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
@@ -330,6 +395,7 @@ export default function Inventory() {
                   <th className="px-3 py-3 font-semibold">Unit cost</th>
                   <th className="px-3 py-3 font-semibold">Value</th>
                   <th className="px-5 py-3 font-semibold">Status</th>
+                  {mayEdit && <th className="px-5 py-3 font-semibold">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -352,6 +418,17 @@ export default function Inventory() {
                           {low ? 'Low' : 'OK'}
                         </span>
                       </td>
+                      {mayEdit && (
+                        <td className="px-5 py-3">
+                          <button
+                            type="button"
+                            onClick={() => openEditItem(item)}
+                            className="text-xs font-semibold text-primary-700 hover:underline"
+                          >
+                            Edit stock
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -443,6 +520,30 @@ export default function Inventory() {
           </div>
         )}
       </div>
+
+      {editingItem && (
+        <Modal title={`Edit stock — ${editingItem.name}`} onClose={() => setEditingItem(null)}>
+          <form onSubmit={handleSaveStock} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Quantity on hand</label>
+              <input className={inputCls} value={editForm.quantityOnHand} onChange={(e) => setEditForm({ ...editForm, quantityOnHand: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Reorder level</label>
+              <input className={inputCls} value={editForm.reorderLevel} onChange={(e) => setEditForm({ ...editForm, reorderLevel: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Unit cost ({getDisplayCurrency()})</label>
+              <input className={inputCls} value={editForm.unitCost} onChange={(e) => setEditForm({ ...editForm, unitCost: e.target.value })} />
+            </div>
+            {formError && <p className="text-xs text-red-600">{formError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
+              <button type="submit" className="px-4 py-2 text-sm font-semibold bg-primary-600 text-white rounded-lg">Save</button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {showAddItem && (
         <Modal title="Add inventory item" onClose={() => setShowAddItem(false)} size="lg">

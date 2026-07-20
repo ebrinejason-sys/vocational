@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ShoppingCart, Plus, CheckCircle2, Clock, Package, XCircle,
@@ -7,7 +7,15 @@ import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { cn, formatCurrency, formatDate, friendlyError, getDisplayCurrency } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 import Modal from '../components/Modal';
+import ExportToolbar from '../components/ExportToolbar';
+
+interface StaffOption {
+  id: string;
+  fullName: string;
+  role: string;
+}
 
 const STATUS_CONFIG = {
   pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-700' },
@@ -20,9 +28,10 @@ interface ProcForm {
   itemId: string;
   quantityRequested: string;
   estimatedCost: string;
+  assignedToId: string;
 }
 
-const EMPTY: ProcForm = { itemId: '', quantityRequested: '', estimatedCost: '' };
+const EMPTY: ProcForm = { itemId: '', quantityRequested: '', estimatedCost: '', assignedToId: '' };
 
 export default function Procurement() {
   const { profile } = useAuth();
@@ -40,6 +49,25 @@ export default function Procurement() {
   const [errors, setErrors] = useState<Partial<ProcForm>>({});
   const [banner, setBanner] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .eq('active', true)
+        .in('role', ['logistics_officer', 'admin', 'project_coordinator', 'finance_officer'])
+        .order('full_name');
+      if (data) {
+        setStaffOptions(data.map((p) => ({
+          id: p.id as string,
+          fullName: p.full_name as string,
+          role: p.role as string,
+        })));
+      }
+    })();
+  }, []);
 
   const selectedItem = inventoryItems.find((i) => i.id === form.itemId);
   const pending = useMemo(
@@ -57,6 +85,7 @@ export default function Procurement() {
   function validate(): boolean {
     const next: Partial<ProcForm> = {};
     if (!form.itemId) next.itemId = 'Select an inventory item';
+    if (!form.assignedToId) next.assignedToId = 'Select the staff member responsible';
     if (!form.quantityRequested || isNaN(Number(form.quantityRequested)) || Number(form.quantityRequested) <= 0)
       next.quantityRequested = 'Enter a valid quantity';
     const cost = form.estimatedCost || autoCost;
@@ -74,6 +103,7 @@ export default function Procurement() {
         itemId: form.itemId,
         quantityRequested: Number(form.quantityRequested),
         estimatedCost: Number(form.estimatedCost || autoCost),
+        assignedToId: form.assignedToId,
       });
       setForm(EMPTY);
       setShowForm(false);
@@ -116,8 +146,18 @@ export default function Procurement() {
   const inputCls =
     'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white';
 
+  const procurementExportRows = procurementRequests.map((req) => ({
+    item: req.itemName,
+    quantity: req.quantityRequested,
+    cost: formatCurrency(req.estimatedCost),
+    requestedBy: req.requestedBy,
+    assignedTo: req.assignedToName,
+    status: req.status,
+    date: formatDate(req.createdAt),
+  }));
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" id="app-print-area">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Procurement</h1>
@@ -142,6 +182,23 @@ export default function Procurement() {
           </button>
         )}
       </div>
+
+      <ExportToolbar
+        title="Procurement Requests"
+        filename="procurement"
+        columns={[
+          { key: 'item', label: 'Item' },
+          { key: 'quantity', label: 'Qty' },
+          { key: 'cost', label: 'Est. Cost' },
+          { key: 'requestedBy', label: 'Requested By' },
+          { key: 'assignedTo', label: 'Assigned To' },
+          { key: 'status', label: 'Status' },
+          { key: 'date', label: 'Date' },
+        ]}
+        rows={procurementExportRows}
+        subtitle={`${procurementRequests.length} request(s)`}
+        printTargetId="app-print-area"
+      />
 
       {!inventoryItems.length && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -223,6 +280,7 @@ export default function Procurement() {
                   <th className="px-5 py-3 font-semibold">Item</th>
                   <th className="px-3 py-3 font-semibold">Qty</th>
                   <th className="px-3 py-3 font-semibold">Est. cost</th>
+                  <th className="px-3 py-3 font-semibold">Assigned To</th>
                   <th className="px-3 py-3 font-semibold">Requested</th>
                   <th className="px-3 py-3 font-semibold">Status</th>
                   <th className="px-5 py-3 font-semibold">Actions</th>
@@ -236,6 +294,7 @@ export default function Procurement() {
                       <td className="px-5 py-3 font-medium text-gray-900">{req.itemName}</td>
                       <td className="px-3 py-3 text-gray-700">{req.quantityRequested}</td>
                       <td className="px-3 py-3 text-gray-700">{formatCurrency(req.estimatedCost)}</td>
+                      <td className="px-3 py-3 text-gray-600 text-xs">{req.assignedToName}</td>
                       <td className="px-3 py-3 text-gray-500 text-xs">
                         {req.requestedBy}<br />{formatDate(req.createdAt)}
                       </td>
@@ -309,6 +368,20 @@ export default function Procurement() {
                 onChange={(e) => setForm({ ...form, quantityRequested: e.target.value })}
               />
               {errors.quantityRequested && <p className="text-xs text-red-600 mt-1">{errors.quantityRequested}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Assign to responsible staff *</label>
+              <select
+                className={inputCls}
+                value={form.assignedToId}
+                onChange={(e) => setForm({ ...form, assignedToId: e.target.value })}
+              >
+                <option value="">Select staff member…</option>
+                {staffOptions.map((s) => (
+                  <option key={s.id} value={s.id}>{s.fullName} ({s.role.replace('_', ' ')})</option>
+                ))}
+              </select>
+              {errors.assignedToId && <p className="text-xs text-red-600 mt-1">{errors.assignedToId}</p>}
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Estimated cost ({getDisplayCurrency()}) *</label>

@@ -54,9 +54,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const isAdmin = callerProfile.role === 'admin';
-  const isDirectorInvitingTrainer = callerProfile.role === 'director' && role === 'trainer';
-  if (!isAdmin && !isDirectorInvitingTrainer) {
-    res.status(403).json({ error: 'Only admins can invite staff (directors may invite trainers)' });
+  if (!isAdmin) {
+    res.status(403).json({ error: 'Only admins can invite staff' });
     return;
   }
 

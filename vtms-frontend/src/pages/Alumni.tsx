@@ -10,6 +10,7 @@ import {
 import { useStore } from '../store';
 import { formatCurrency, formatDate, generateId, today, cn, getDisplayCurrency } from '../lib/utils';
 import type { EmploymentStatus, StarterKitStatus, AlumniFollowUp, JobPlacement } from '../types';
+import ExportToolbar from '../components/ExportToolbar';
 
 const EMPLOYMENT_STYLES: Record<EmploymentStatus, string> = {
   employed:       'bg-green-100 text-green-700',
@@ -46,6 +47,7 @@ const defaultFollowUpForm = {
   currentEmployer:  '',
   monthlyIncome:    '',
   starterKitStatus: 'not_issued' as StarterKitStatus,
+  continuingInTrade: false,
   notes:            '',
 };
 
@@ -109,7 +111,34 @@ export default function Alumni() {
       : 0;
     const avgIncome = withIncome > 0 ? Math.round(totalIncome / withIncome) : 0;
 
-    return { total, employed, unemploymentRate, avgIncome };
+    let withStarterKit = 0;
+    let withoutStarterKit = 0;
+    let continuingTrade = 0;
+    alumniTrainees.forEach((t) => {
+      const lf = getLatestFollowUp(t.id);
+      if (!lf) {
+        withoutStarterKit++;
+        return;
+      }
+      if (lf.starterKitStatus === 'in_use') withStarterKit++;
+      else withoutStarterKit++;
+      if (lf.continuingInTrade) continuingTrade++;
+    });
+
+    const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+
+    return {
+      total,
+      employed,
+      unemploymentRate,
+      avgIncome,
+      withStarterKit,
+      withoutStarterKit,
+      continuingTrade,
+      starterKitPct: pct(withStarterKit),
+      noKitPct: pct(withoutStarterKit),
+      continuingTradePct: pct(continuingTrade),
+    };
   }, [alumniTrainees, alumniFollowUps]);
 
   // Employment outcome chart data
@@ -163,6 +192,7 @@ export default function Alumni() {
       currentEmployer:  followUpForm.currentEmployer.trim(),
       monthlyIncome:    isNaN(income) ? 0 : income,
       starterKitStatus: followUpForm.starterKitStatus,
+      continuingInTrade: followUpForm.continuingInTrade,
       notes:            followUpForm.notes.trim(),
     };
     addAlumniFollowUp(entry);
@@ -199,8 +229,22 @@ export default function Alumni() {
   const selectedAlumniFollowUps = selectedAlumniId ? getAllFollowUps(selectedAlumniId) : [];
   const selectedAlumniBatch = selectedAlumni ? getBatch(selectedAlumni.batchId) : null;
 
+  const alumniExportRows = alumniTrainees.map((t) => {
+    const lf = getLatestFollowUp(t.id);
+    const batch = getBatch(t.batchId);
+    return {
+      name: `${t.firstName} ${t.lastName}`,
+      trade: t.trade,
+      batch: batch?.name ?? '—',
+      employment: lf ? EMPLOYMENT_LABELS[lf.employmentStatus] : 'No follow-up',
+      starterKit: lf ? KIT_STATUS_LABELS[lf.starterKitStatus] : '—',
+      continuingTrade: lf?.continuingInTrade ? 'Yes' : 'No',
+      income: lf && lf.monthlyIncome > 0 ? formatCurrency(lf.monthlyIncome) : '—',
+    };
+  });
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" id="app-print-area">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -224,6 +268,23 @@ export default function Alumni() {
           </button>
         </div>
       </div>
+
+      <ExportToolbar
+        title="Alumni Follow-Up Report"
+        filename="alumni-report"
+        columns={[
+          { key: 'name', label: 'Name' },
+          { key: 'trade', label: 'Trade' },
+          { key: 'batch', label: 'Batch' },
+          { key: 'employment', label: 'Employment' },
+          { key: 'starterKit', label: 'Starter Kit' },
+          { key: 'continuingTrade', label: 'Continuing Trade' },
+          { key: 'income', label: 'Monthly Income' },
+        ]}
+        rows={alumniExportRows}
+        subtitle={`${stats.total} alumni · ${stats.starterKitPct}% with starter kits · ${stats.continuingTradePct}% continuing trade`}
+        printTargetId="app-print-area"
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -254,6 +315,25 @@ export default function Alumni() {
           </div>
           <p className="text-2xl font-bold text-sky-700">{formatCurrency(stats.avgIncome)}</p>
           <p className="text-xs text-gray-500 mt-1 font-medium">Avg Monthly Income</p>
+        </div>
+      </div>
+
+      {/* Kit & trade breakdown */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <p className="text-xs text-gray-500 font-medium">Has starter kit (in use)</p>
+          <p className="text-2xl font-bold text-green-700 mt-1">{stats.withStarterKit}</p>
+          <p className="text-sm font-semibold text-green-600">{stats.starterKitPct}% of alumni</p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <p className="text-xs text-gray-500 font-medium">Without starter kit</p>
+          <p className="text-2xl font-bold text-amber-700 mt-1">{stats.withoutStarterKit}</p>
+          <p className="text-sm font-semibold text-amber-600">{stats.noKitPct}% of alumni</p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <p className="text-xs text-gray-500 font-medium">Continuing in their trade</p>
+          <p className="text-2xl font-bold text-primary-700 mt-1">{stats.continuingTrade}</p>
+          <p className="text-sm font-semibold text-primary-600">{stats.continuingTradePct}% of alumni</p>
         </div>
       </div>
 
@@ -325,6 +405,18 @@ export default function Alumni() {
                     <option key={s} value={s}>{KIT_STATUS_LABELS[s]}</option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Continuing in vocational trade?</label>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={followUpForm.continuingInTrade}
+                    onChange={(e) => setFollowUpForm({ ...followUpForm, continuingInTrade: e.target.checked })}
+                    className="rounded border-gray-300 text-primary-600"
+                  />
+                  Still practicing / working in their trained trade
+                </label>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label>

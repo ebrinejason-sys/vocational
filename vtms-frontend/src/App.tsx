@@ -49,7 +49,7 @@ export default function App() {
             <Route path="alumni" element={<RequireRole roles={rolesWithAccess('alumni')}><Alumni /></RequireRole>} />
             <Route path="trainers" element={<RequireRole roles={rolesWithAccess('batches')}><Trainers /></RequireRole>} />
             <Route path="admin/staff" element={<RequireRole roles={['admin']}><AdminStaff /></RequireRole>} />
-            <Route path="admin/currency" element={<RequireRole roles={['admin', 'director']}><AdminCurrency /></RequireRole>} />
+            <Route path="admin/currency" element={<RequireRole roles={['admin', 'director', 'finance_officer']}><AdminCurrency /></RequireRole>} />
             <Route path="more" element={<div className="p-6 text-gray-500 text-sm">Settings coming soon</div>} />
           </Route>
         </Routes>
