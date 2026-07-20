@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { cn, getVulnerabilityLabel, formatDate, friendlyError } from '../lib/utils';
 import type { Trainee, VulnerabilityAssessment, TraineeStatus, TradeType } from '../types';
+import ExportToolbar from '../components/ExportToolbar';
 
 // ── Vulnerability score computation ──────────────────────────────────────────
 
@@ -561,8 +562,26 @@ export default function Trainees() {
 
   const selectCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary-300';
 
+  const traineeExportColumns = [
+    { key: 'name', label: 'Name' },
+    { key: 'batch', label: 'Batch' },
+    { key: 'trade', label: 'Trade' },
+    { key: 'status', label: 'Status' },
+    { key: 'phone', label: 'Phone' },
+    { key: 'vulnerability', label: 'Vulnerability' },
+  ];
+
+  const traineeExportRows = filtered.map((t) => ({
+    name: `${t.firstName} ${t.lastName}`,
+    batch: batchMap[t.batchId]?.name ?? '—',
+    trade: t.trade ?? '—',
+    status: t.status,
+    phone: t.phone || '—',
+    vulnerability: getVulnerabilityLabel(t.vulnerabilityScore).label,
+  }));
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" id="app-print-area">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -621,6 +640,15 @@ export default function Trainees() {
           <option value="dropped">Dropped</option>
         </select>
       </div>
+
+      <ExportToolbar
+        title="Trainee Register"
+        filename="trainees"
+        columns={traineeExportColumns}
+        rows={traineeExportRows}
+        subtitle={`${traineeExportRows.length} trainee(s)`}
+        printTargetId="app-print-area"
+      />
 
       {/* Trainee list */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">

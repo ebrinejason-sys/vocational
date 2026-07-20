@@ -10,6 +10,7 @@ import { canEdit } from '../lib/permissions';
 import { cn, formatCurrency, formatDate, friendlyError, formatBatchTrades, formatBatchTrainers, getDisplayCurrency } from '../lib/utils';
 import { TRADE_OPTIONS, type TradeType, type BatchStatus } from '../types';
 import { supabase } from '../lib/supabase';
+import ExportToolbar from '../components/ExportToolbar';
 
 const STATUS_CONFIG: Record<BatchStatus, { label: string; color: string; icon: typeof CheckCircle }> = {
   active: { label: 'Active', color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -180,8 +181,28 @@ export default function Batches() {
       error ? 'border-red-300' : 'border-gray-200'
     );
 
+  const batchExportColumns = [
+    { key: 'name', label: 'Batch' },
+    { key: 'status', label: 'Status' },
+    { key: 'trades', label: 'Trades' },
+    { key: 'trainers', label: 'Trainers' },
+    { key: 'start', label: 'Start Date' },
+    { key: 'budget', label: 'Budget' },
+    { key: 'enrolled', label: 'Enrolled' },
+  ];
+
+  const batchExportRows = batches.map((b) => ({
+    name: b.name,
+    status: b.status,
+    trades: formatBatchTrades(b.trades),
+    trainers: formatBatchTrainers(b.trades),
+    start: formatDate(b.startDate),
+    budget: formatCurrency(b.budgetAllocated),
+    enrolled: trainees.filter((t) => t.batchId === b.id && t.status === 'enrolled').length,
+  }));
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" id="app-print-area">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Batches</h2>
@@ -205,6 +226,15 @@ export default function Batches() {
           </button>
         )}
       </div>
+
+      <ExportToolbar
+        title="Batch Overview"
+        filename="batches"
+        columns={batchExportColumns}
+        rows={batchExportRows}
+        subtitle={`${batches.length} batch(es)`}
+        printTargetId="app-print-area"
+      />
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">

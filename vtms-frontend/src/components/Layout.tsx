@@ -52,9 +52,9 @@ export default function Layout() {
     profile?.role === 'admin' || profile?.role === 'director'
       ? [
           ...(profile.role === 'admin'
-            ? [{ to: '/admin/staff', icon: ShieldCheck, label: 'Staff' as const }]
+            ? [{ to: '/admin/staff', icon: ShieldCheck, label: 'Staff' as const, exact: false as const }]
             : []),
-          { to: '/admin/currency', icon: DollarSign, label: 'Currency' as const },
+          { to: '/admin/currency', icon: DollarSign, label: 'Currency' as const, exact: false as const },
         ]
       : [];
   const navItems = [...visibleNavItems, ...adminNav];

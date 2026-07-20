@@ -355,7 +355,7 @@ function interviewFromRow(row: TraineeInterviewRow): TraineeInterview {
 }
 
 function interviewToRow(
-  input: Omit<TraineeInterview, 'id' | 'createdAt'> & { id?: string }
+  input: Omit<TraineeInterview, 'id' | 'createdAt' | 'totalScore'> & { id?: string }
 ) {
   const scores = input.scores;
   return {

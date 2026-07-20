@@ -5,13 +5,14 @@ import {
 } from 'recharts';
 import {
   TrendingUp, TrendingDown, Scale, Plus, ChevronDown,
-  FileText, AlertTriangle, Pencil, Trash2, Users,
+  FileText, AlertTriangle, Pencil, Trash2, Users, ShoppingBag, DollarSign,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { formatCurrency, formatDate, today, cn, friendlyError } from '../lib/utils';
 import type { FinancialTransaction, TransactionType } from '../types';
+import ExportToolbar from '../components/ExportToolbar';
 
 const EXPENSE_COLORS = [
   '#0d9488', '#14b8a6', '#2dd4bf', '#5eead4', '#99f6e4',
@@ -205,8 +206,33 @@ export default function Financials() {
 
   const categoryOptions = form.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
+  const exportColumns = [
+    { key: 'date', label: 'Date' },
+    { key: 'type', label: 'Type' },
+    { key: 'category', label: 'Category' },
+    { key: 'amount', label: 'Amount' },
+    { key: 'description', label: 'Description' },
+    { key: 'donor', label: 'Donor' },
+  ];
+
+  const exportRows = useMemo(
+    () => batchTransactions.map((t) => ({
+      date: formatDate(t.date),
+      type: t.type,
+      category: t.category,
+      amount: formatCurrency(t.amount, currencyCode),
+      description: t.description,
+      donor: t.donorName || '—',
+    })),
+    [batchTransactions, currencyCode],
+  );
+
+  const exportSubtitle = selectedBatch
+    ? `${selectedBatch.name} · ${currencyCode} · Income ${formatCurrency(totalIncome, currencyCode)} · Expenses ${formatCurrency(totalExpense, currencyCode)}`
+    : currencyCode;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" id="app-print-area">
       {/* Batch Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -245,6 +271,15 @@ export default function Financials() {
           )}
         </div>
       </div>
+
+      <ExportToolbar
+        title={`Financial Report — ${selectedBatch?.name ?? 'Batch'}`}
+        subtitle={exportSubtitle}
+        filename={`financials-${selectedBatch?.name?.replace(/\s+/g, '-').toLowerCase() ?? 'batch'}`}
+        columns={exportColumns}
+        rows={exportRows}
+        printTargetId="app-print-area"
+      />
 
       {notice && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{notice}</p>

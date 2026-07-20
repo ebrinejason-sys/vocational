@@ -196,3 +196,25 @@ body {
 
 /* Progress-track backgrounds inside cards */
 .dark .bg-gray-200 { background-color: #24344c; }
+
+/* Print: hide chrome, show data sections */
+@media print {
+  aside,
+  header,
+  nav,
+  .no-print,
+  button:not(.print-keep) {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  #app-print-area {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}

@@ -6,6 +6,7 @@ import {
 import { useStore } from '../store';
 import { cn, generateId, today, formatDate, getAttendanceRate } from '../lib/utils';
 import type { AttendanceRecord, AttendanceStatus } from '../types';
+import ExportToolbar from '../components/ExportToolbar';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -188,8 +189,22 @@ export default function Attendance() {
 
   const selectCls = 'border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary-300';
 
+  const selectedBatch = batches.find((b) => b.id === selectedBatchId);
+
+  const attendanceExportColumns = [
+    { key: 'name', label: 'Trainee' },
+    { key: 'date', label: 'Date' },
+    { key: 'status', label: 'Status' },
+  ];
+
+  const attendanceExportRows = markable.map((t) => ({
+    name: `${t.firstName} ${t.lastName}`,
+    date: formatDate(selectedDate),
+    status: selections[t.id] ?? 'present',
+  }));
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" id="app-print-area">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -197,6 +212,15 @@ export default function Attendance() {
           <p className="text-sm text-gray-500 mt-0.5">Log and review daily attendance</p>
         </div>
       </div>
+
+      <ExportToolbar
+        title={`Attendance — ${selectedBatch?.name ?? 'Batch'}`}
+        filename={`attendance-${selectedDate}`}
+        columns={attendanceExportColumns}
+        rows={attendanceExportRows}
+        subtitle={`${formatDate(selectedDate)} · ${counts.present} present · ${counts.absent} absent`}
+        printTargetId="app-print-area"
+      />
 
       {/* Controls */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-4 items-end">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canView, canEdit, permissionFor, rolesWithAccess, type Domain } from './permissions';
+import { canView, canEdit, permissionFor, rolesWithAccess, accessibleDomains, type Domain } from './permissions';
 
 const DOMAINS: Domain[] = ['batches', 'trainees', 'attendance', 'competency', 'case_notes', 'inventory', 'financials', 'graduation', 'alumni'];
 
@@ -12,8 +12,22 @@ describe('permissions', () => {
     });
   });
 
-  it('denies finance_officer any access to case_notes', () => {
-    expect(canView('finance_officer', 'case_notes')).toBe(false);
+  it('gives finance_officer view access to all operational domains and edit on financials', () => {
+    expect(canView('finance_officer', 'batches')).toBe(true);
+    expect(canView('finance_officer', 'trainees')).toBe(true);
+    expect(canView('finance_officer', 'attendance')).toBe(true);
+    expect(canView('finance_officer', 'competency')).toBe(true);
+    expect(canView('finance_officer', 'case_notes')).toBe(true);
+    expect(canView('finance_officer', 'inventory')).toBe(true);
+    expect(canView('finance_officer', 'graduation')).toBe(true);
+    expect(canView('finance_officer', 'alumni')).toBe(true);
+    expect(canEdit('finance_officer', 'financials')).toBe(true);
+    expect(canEdit('finance_officer', 'batches')).toBe(false);
+    expect(accessibleDomains('finance_officer').length).toBe(DOMAINS.length);
+  });
+
+  it('denies finance_officer edit on case_notes', () => {
+    expect(canView('finance_officer', 'case_notes')).toBe(true);
     expect(canEdit('finance_officer', 'case_notes')).toBe(false);
   });
 
@@ -28,9 +42,14 @@ describe('permissions', () => {
     expect(canView('trainer', 'financials')).toBe(false);
   });
 
+  it('restricts financials tab to admin, director, and finance_officer only', () => {
+    expect(rolesWithAccess('financials').sort()).toEqual(['admin', 'director', 'finance_officer'].sort());
+    expect(canView('project_coordinator', 'financials')).toBe(false);
+    expect(canView('logistics_officer', 'financials')).toBe(false);
+  });
+
   it('rolesWithAccess returns only roles that can at least view the domain', () => {
-    expect(rolesWithAccess('financials').sort()).toEqual(['admin', 'director', 'finance_officer', 'project_coordinator'].sort());
-    expect(rolesWithAccess('case_notes').sort()).toEqual(['admin', 'case_worker', 'director'].sort());
+    expect(rolesWithAccess('case_notes').sort()).toEqual(['admin', 'case_worker', 'director', 'finance_officer'].sort());
     expect(rolesWithAccess('batches').sort()).toEqual(
       ['admin', 'case_worker', 'director', 'finance_officer', 'logistics_officer', 'project_coordinator', 'trainer'].sort()
     );
@@ -42,9 +61,9 @@ describe('permissions', () => {
     expect(canView('logistics_officer', 'financials')).toBe(false);
   });
 
-  it('project_coordinator has broad operational access but no case notes', () => {
+  it('project_coordinator has broad operational access but no case notes or financials', () => {
     expect(canEdit('project_coordinator', 'batches')).toBe(true);
-    expect(canView('project_coordinator', 'financials')).toBe(true);
+    expect(canView('project_coordinator', 'financials')).toBe(false);
     expect(canEdit('project_coordinator', 'financials')).toBe(false);
     expect(canView('project_coordinator', 'case_notes')).toBe(false);
   });

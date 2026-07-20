@@ -2,6 +2,13 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import AdminStaff from './AdminStaff';
 
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    profile: { id: '1', fullName: 'Jane Admin', email: 'jane@agape.org', role: 'admin', active: true },
+    signOut: vi.fn(),
+  }),
+}));
+
 vi.mock('../lib/supabase', () => ({
   supabase: {
     from: () => ({

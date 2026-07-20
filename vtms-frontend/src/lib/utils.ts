@@ -6,22 +6,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** Org display currency (set from app_settings on load). Amounts are not auto-converted. */
-export type CurrencyCode = 'USD' | 'UGX' | 'SSP' | 'EUR' | 'KES';
+export type CurrencyCode = 'USD' | 'SSP';
 
 export const CURRENCY_OPTIONS: { code: CurrencyCode; label: string }[] = [
   { code: 'USD', label: 'US Dollar (USD)' },
-  { code: 'UGX', label: 'Ugandan Shilling (UGX)' },
   { code: 'SSP', label: 'South Sudanese Pound (SSP)' },
-  { code: 'EUR', label: 'Euro (EUR)' },
-  { code: 'KES', label: 'Kenyan Shilling (KES)' },
 ];
 
 const CURRENCY_FORMAT: Record<CurrencyCode, { locale: string; currency: string }> = {
   USD: { locale: 'en-US', currency: 'USD' },
-  UGX: { locale: 'en-UG', currency: 'UGX' },
   SSP: { locale: 'en-SS', currency: 'SSP' },
-  EUR: { locale: 'en-EU', currency: 'EUR' },
-  KES: { locale: 'en-KE', currency: 'KES' },
 };
 
 let displayCurrency: CurrencyCode = 'USD';
@@ -42,7 +36,7 @@ export function formatCurrency(amount: number, currencyCode: CurrencyCode = disp
     return new Intl.NumberFormat(meta.locale, {
       style: 'currency',
       currency: meta.currency,
-      maximumFractionDigits: currencyCode === 'UGX' || currencyCode === 'SSP' || currencyCode === 'KES' ? 0 : 2,
+      maximumFractionDigits: currencyCode === 'SSP' ? 0 : 2,
     }).format(amount);
   } catch {
     return `${currencyCode} ${amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;

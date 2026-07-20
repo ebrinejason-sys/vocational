@@ -1,8 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { UserPlus } from 'lucide-react';
+import { UserPlus, Trash2, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
-import { ROLE_LABELS, type Role } from '../lib/permissions';
+import {
+  ROLE_LABELS,
+  DOMAIN_LABELS,
+  accessibleDomains,
+  type Role,
+} from '../lib/permissions';
 import { TRADE_OPTIONS, type TradeType } from '../types';
 
 interface StaffProfile {
@@ -18,9 +24,57 @@ const ROLE_OPTIONS: Role[] = [
   'case_worker', 'finance_officer', 'logistics_officer',
 ];
 
+function AccessPreview({ role }: { role: Role }) {
+  const domains = accessibleDomains(role);
+  if (!domains.length) {
+    return <p className="text-xs text-gray-400">This role has no module access.</p>;
+  }
+  return (
+    <ul className="flex flex-wrap gap-1.5">
+      {domains.map(({ domain, level }) => (
+        <li
+          key={domain}
+          className={cn(
+            'text-[10px] font-semibold px-2 py-0.5 rounded-full',
+            level === 'full' || level === 'edit'
+              ? 'bg-primary-100 text-primary-800'
+              : 'bg-gray-100 text-gray-600',
+          )}
+        >
+          {DOMAIN_LABELS[domain]}
+          {level === 'edit' || level === 'full' ? ' (edit)' : ''}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+async function staffApi(
+  endpoint: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session?.access_token ?? ''}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, error: (data as { error?: string }).error ?? 'Request failed' };
+  }
+  return { ok: true };
+}
+
 export default function AdminStaff() {
+  const { profile: currentUser } = useAuth();
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const [form, setForm] = useState<{
     email: string;
     fullName: string;
@@ -39,7 +93,13 @@ export default function AdminStaff() {
       .select('id, full_name, email, role, active')
       .order('full_name');
     if (!error && data) {
-      setStaff(data.map((r) => ({ id: r.id, fullName: r.full_name, email: r.email, role: r.role, active: r.active })));
+      setStaff(data.map((r) => ({
+        id: r.id,
+        fullName: r.full_name,
+        email: r.email,
+        role: r.role as Role,
+        active: r.active,
+      })));
     }
     setLoading(false);
   }
@@ -92,14 +152,76 @@ export default function AdminStaff() {
     loadStaff();
   }
 
+  async function handleRoleChange(userId: string, role: Role) {
+    setPendingId(userId);
+    setMessage(null);
+    const result = await staffApi('/api/update-staff', { userId, role });
+    setPendingId(null);
+    if (!result.ok) {
+      setMessage({ type: 'error', text: result.error ?? 'Could not update role' });
+      return;
+    }
+    setStaff((prev) => prev.map((s) => (s.id === userId ? { ...s, role } : s)));
+    setMessage({ type: 'success', text: 'Role updated. Access changes take effect on next sign-in.' });
+  }
+
+  async function handleToggleActive(member: StaffProfile) {
+    if (member.id === currentUser?.id) return;
+    setPendingId(member.id);
+    setMessage(null);
+    const result = await staffApi('/api/update-staff', { userId: member.id, active: !member.active });
+    setPendingId(null);
+    if (!result.ok) {
+      setMessage({ type: 'error', text: result.error ?? 'Could not update account status' });
+      return;
+    }
+    setStaff((prev) => prev.map((s) => (
+      s.id === member.id ? { ...s, active: !member.active } : s
+    )));
+    setMessage({
+      type: 'success',
+      text: member.active ? `${member.fullName} deactivated` : `${member.fullName} reactivated`,
+    });
+  }
+
+  async function handleDelete(member: StaffProfile) {
+    if (member.id === currentUser?.id) return;
+    const confirmed = window.confirm(
+      `Permanently delete ${member.fullName} (${member.email})?\n\nThis removes their login and cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setPendingId(member.id);
+    setMessage(null);
+    const result = await staffApi('/api/delete-staff', { userId: member.id });
+    setPendingId(null);
+    if (!result.ok) {
+      setMessage({ type: 'error', text: result.error ?? 'Could not delete user' });
+      return;
+    }
+    setStaff((prev) => prev.filter((s) => s.id !== member.id));
+    setMessage({ type: 'success', text: `${member.fullName} deleted` });
+  }
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-gray-900">Staff & Roles</h2>
+        <h2 className="text-xl font-bold text-gray-900">Staff &amp; Roles</h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          Invite staff and manage role assignments. Tag trainer trades here or on the Trainers page.
+          Invite staff, assign roles (which control module access), deactivate accounts, or remove users.
         </p>
       </div>
+
+      {message && (
+        <p className={cn(
+          'text-xs rounded-lg px-3 py-2 border',
+          message.type === 'success'
+            ? 'text-green-700 bg-green-50 border-green-100'
+            : 'text-red-600 bg-red-50 border-red-100',
+        )}>
+          {message.text}
+        </p>
+      )}
 
       <form onSubmit={handleInvite} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
         <h3 className="text-sm font-bold text-gray-800">Invite Staff Member</h3>
@@ -128,6 +250,13 @@ export default function AdminStaff() {
             {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </select>
         </div>
+        <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+            <Shield className="w-3 h-3" />
+            Access for {ROLE_LABELS[form.role]}
+          </p>
+          <AccessPreview role={form.role} />
+        </div>
         {form.role === 'trainer' && (
           <div>
             <p className="text-xs font-semibold text-gray-600 mb-2">Trainer trades *</p>
@@ -141,7 +270,7 @@ export default function AdminStaff() {
                     'text-xs font-semibold px-2.5 py-1 rounded-full border',
                     form.trades.includes(trade)
                       ? 'bg-primary-600 text-white border-primary-600'
-                      : 'bg-white text-gray-600 border-gray-200'
+                      : 'bg-white text-gray-600 border-gray-200',
                   )}
                 >
                   {trade}
@@ -150,17 +279,12 @@ export default function AdminStaff() {
             </div>
           </div>
         )}
-        {message && (
-          <p className={cn('text-xs', message.type === 'success' ? 'text-green-600' : 'text-red-500')}>
-            {message.text}
-          </p>
-        )}
         <button
           type="submit"
           disabled={submitting}
           className={cn(
             'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
-            submitting ? 'bg-primary-300 text-white cursor-not-allowed' : 'bg-primary-600 text-white hover:bg-primary-700'
+            submitting ? 'bg-primary-300 text-white cursor-not-allowed' : 'bg-primary-600 text-white hover:bg-primary-700',
           )}
         >
           <UserPlus className="w-4 h-4" />
@@ -176,20 +300,76 @@ export default function AdminStaff() {
           <div className="p-6 text-center text-sm text-gray-400">Loading…</div>
         ) : (
           <ul className="divide-y divide-gray-50">
-            {staff.map((s) => (
-              <li key={s.id} className="flex items-center justify-between px-5 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">{s.fullName}</p>
-                  <p className="text-xs text-gray-400">{s.email}</p>
-                </div>
-                <span className={cn(
-                  'text-[10px] font-bold px-2 py-0.5 rounded-full capitalize',
-                  s.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                )}>
-                  {ROLE_LABELS[s.role] ?? s.role}{!s.active ? ' · inactive' : ''}
-                </span>
-              </li>
-            ))}
+            {staff.map((s) => {
+              const isSelf = s.id === currentUser?.id;
+              const busy = pendingId === s.id;
+              const expanded = expandedId === s.id;
+              return (
+                <li key={s.id} className="px-5 py-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800">
+                        {s.fullName}
+                        {isSelf && <span className="text-gray-400 font-normal"> (you)</span>}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">{s.email}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={s.role}
+                        disabled={isSelf || busy}
+                        onChange={(e) => handleRoleChange(s.id, e.target.value as Role)}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50"
+                        aria-label={`Role for ${s.fullName}`}
+                      >
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={isSelf || busy}
+                        onClick={() => handleToggleActive(s)}
+                        className={cn(
+                          'text-[10px] font-bold px-2 py-1 rounded-full transition-colors disabled:opacity-50',
+                          s.active
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200',
+                        )}
+                      >
+                        {s.active ? 'Active' : 'Inactive'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSelf || busy}
+                        onClick={() => handleDelete(s)}
+                        className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 disabled:opacity-50"
+                        title="Delete user"
+                        aria-label={`Delete ${s.fullName}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(expanded ? null : s.id)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"
+                        aria-label="Show access"
+                      >
+                        {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  {expanded && (
+                    <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">
+                        Module access — {ROLE_LABELS[s.role]}
+                      </p>
+                      <AccessPreview role={s.role} />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

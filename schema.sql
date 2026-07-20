@@ -232,7 +232,7 @@ CREATE TABLE financial_transactions (
 CREATE TABLE app_settings (
     id TEXT PRIMARY KEY DEFAULT 'org',
     currency_code TEXT NOT NULL DEFAULT 'USD'
-      CHECK (currency_code IN ('USD', 'UGX', 'SSP', 'EUR', 'KES')),
+      CHECK (currency_code IN ('USD', 'SSP')),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL
 );
@@ -323,7 +323,7 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY profiles_select ON profiles FOR SELECT
   USING (
     id = auth.uid()
-    OR current_role_is(ARRAY['director','admin']::user_role[])
+    OR current_role_is(ARRAY['director','admin','finance_officer']::user_role[])
     OR (
       role = 'trainer'
       AND active
@@ -398,7 +398,7 @@ CREATE POLICY trainees_delete ON trainees FOR DELETE
 -- Bucket C: attendance, competency_assessments, modules — view: trainer/case_worker/director/admin, edit: trainer/admin
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 CREATE POLICY attendance_select ON attendance FOR SELECT
-  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
 CREATE POLICY attendance_insert ON attendance FOR INSERT
   WITH CHECK (current_role_is(ARRAY['trainer','admin']::user_role[]));
 CREATE POLICY attendance_update ON attendance FOR UPDATE
@@ -409,7 +409,7 @@ CREATE POLICY attendance_delete ON attendance FOR DELETE
 
 ALTER TABLE competency_assessments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY competency_assessments_select ON competency_assessments FOR SELECT
-  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
 CREATE POLICY competency_assessments_insert ON competency_assessments FOR INSERT
   WITH CHECK (current_role_is(ARRAY['trainer','admin']::user_role[]));
 CREATE POLICY competency_assessments_update ON competency_assessments FOR UPDATE
@@ -420,7 +420,7 @@ CREATE POLICY competency_assessments_delete ON competency_assessments FOR DELETE
 
 ALTER TABLE modules ENABLE ROW LEVEL SECURITY;
 CREATE POLICY modules_select ON modules FOR SELECT
-  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
 CREATE POLICY modules_insert ON modules FOR INSERT
   WITH CHECK (current_role_is(ARRAY['trainer','admin']::user_role[]));
 CREATE POLICY modules_update ON modules FOR UPDATE
@@ -432,7 +432,7 @@ CREATE POLICY modules_delete ON modules FOR DELETE
 -- Bucket D: case_notes, vulnerability_assessments — view: case_worker/director/admin, edit: case_worker/admin
 ALTER TABLE case_notes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY case_notes_select ON case_notes FOR SELECT
-  USING (current_role_is(ARRAY['case_worker','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['case_worker','finance_officer','director','admin']::user_role[]));
 CREATE POLICY case_notes_insert ON case_notes FOR INSERT
   WITH CHECK (current_role_is(ARRAY['case_worker','admin']::user_role[]));
 CREATE POLICY case_notes_update ON case_notes FOR UPDATE
@@ -443,7 +443,7 @@ CREATE POLICY case_notes_delete ON case_notes FOR DELETE
 
 ALTER TABLE vulnerability_assessments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY vulnerability_assessments_select ON vulnerability_assessments FOR SELECT
-  USING (current_role_is(ARRAY['case_worker','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['case_worker','finance_officer','director','admin']::user_role[]));
 CREATE POLICY vulnerability_assessments_insert ON vulnerability_assessments FOR INSERT
   WITH CHECK (current_role_is(ARRAY['case_worker','admin']::user_role[]));
 CREATE POLICY vulnerability_assessments_update ON vulnerability_assessments FOR UPDATE
@@ -489,7 +489,7 @@ CREATE POLICY procurement_requests_delete ON procurement_requests FOR DELETE
 -- Bucket F: production_logs, sales, financial_transactions — view: finance_officer/director/admin, edit: finance_officer/admin
 ALTER TABLE production_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY production_logs_select ON production_logs FOR SELECT
-  USING (current_role_is(ARRAY['project_coordinator','finance_officer','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
 CREATE POLICY production_logs_insert ON production_logs FOR INSERT
   WITH CHECK (current_role_is(ARRAY['finance_officer','admin']::user_role[]));
 CREATE POLICY production_logs_update ON production_logs FOR UPDATE
@@ -500,7 +500,7 @@ CREATE POLICY production_logs_delete ON production_logs FOR DELETE
 
 ALTER TABLE sales ENABLE ROW LEVEL SECURITY;
 CREATE POLICY sales_select ON sales FOR SELECT
-  USING (current_role_is(ARRAY['project_coordinator','finance_officer','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
 CREATE POLICY sales_insert ON sales FOR INSERT
   WITH CHECK (current_role_is(ARRAY['finance_officer','admin']::user_role[]));
 CREATE POLICY sales_update ON sales FOR UPDATE
@@ -511,7 +511,7 @@ CREATE POLICY sales_delete ON sales FOR DELETE
 
 ALTER TABLE financial_transactions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY financial_transactions_select ON financial_transactions FOR SELECT
-  USING (current_role_is(ARRAY['project_coordinator','finance_officer','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['finance_officer','director','admin']::user_role[]));
 CREATE POLICY financial_transactions_insert ON financial_transactions FOR INSERT
   WITH CHECK (current_role_is(ARRAY['finance_officer','admin']::user_role[]));
 CREATE POLICY financial_transactions_update ON financial_transactions FOR UPDATE
@@ -548,7 +548,7 @@ CREATE POLICY notifications_insert ON notifications FOR INSERT
 -- Bucket G: starter_kits, alumni_follow_ups, job_placements — view: trainer/case_worker/director/admin, edit: case_worker/admin
 ALTER TABLE starter_kits ENABLE ROW LEVEL SECURITY;
 CREATE POLICY starter_kits_select ON starter_kits FOR SELECT
-  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','logistics_officer','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','logistics_officer','director','admin']::user_role[]));
 CREATE POLICY starter_kits_insert ON starter_kits FOR INSERT
   WITH CHECK (current_role_is(ARRAY['case_worker','project_coordinator','admin']::user_role[]));
 CREATE POLICY starter_kits_update ON starter_kits FOR UPDATE
@@ -559,7 +559,7 @@ CREATE POLICY starter_kits_delete ON starter_kits FOR DELETE
 
 ALTER TABLE alumni_follow_ups ENABLE ROW LEVEL SECURITY;
 CREATE POLICY alumni_follow_ups_select ON alumni_follow_ups FOR SELECT
-  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
 CREATE POLICY alumni_follow_ups_insert ON alumni_follow_ups FOR INSERT
   WITH CHECK (current_role_is(ARRAY['case_worker','project_coordinator','admin']::user_role[]));
 CREATE POLICY alumni_follow_ups_update ON alumni_follow_ups FOR UPDATE
@@ -570,7 +570,7 @@ CREATE POLICY alumni_follow_ups_delete ON alumni_follow_ups FOR DELETE
 
 ALTER TABLE job_placements ENABLE ROW LEVEL SECURITY;
 CREATE POLICY job_placements_select ON job_placements FOR SELECT
-  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
 CREATE POLICY job_placements_insert ON job_placements FOR INSERT
   WITH CHECK (current_role_is(ARRAY['case_worker','project_coordinator','admin']::user_role[]));
 CREATE POLICY job_placements_update ON job_placements FOR UPDATE
@@ -601,7 +601,7 @@ CREATE INDEX trainee_interviews_batch_id_idx ON trainee_interviews(batch_id);
 
 ALTER TABLE trainee_interviews ENABLE ROW LEVEL SECURITY;
 CREATE POLICY trainee_interviews_select ON trainee_interviews FOR SELECT
-  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
+  USING (current_role_is(ARRAY['trainer','case_worker','project_coordinator','finance_officer','director','admin']::user_role[]));
 CREATE POLICY trainee_interviews_insert ON trainee_interviews FOR INSERT
   WITH CHECK (current_role_is(ARRAY['trainer','case_worker','project_coordinator','director','admin']::user_role[]));
 CREATE POLICY trainee_interviews_update ON trainee_interviews FOR UPDATE
