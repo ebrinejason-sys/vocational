@@ -1,14 +1,16 @@
 import { useState, type FormEvent } from 'react';
-import { useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import Brand from '../components/Brand';
 import ThemeToggle from '../components/ThemeToggle';
+import Preloader from '../components/Preloader';
+
+const PUBLIC_AUTH_PATHS = new Set(['/login', '/welcome', '/reset-password', '/forgot-password']);
 
 export default function Login() {
-  const { session, loading: authLoading } = useAuth();
+  const { accessToken, profile, loading: authLoading, signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -17,22 +19,26 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  if (!authLoading && session) {
+  if (authLoading) {
+    return <Preloader label="Loading…" />;
+  }
+
+  if (accessToken && profile?.active) {
     const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/';
-    return <Navigate to={from} replace />;
+    const target = PUBLIC_AUTH_PATHS.has(from) ? '/' : from;
+    return <Navigate to={target} replace />;
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    const result = await signIn(email, password);
     setSubmitting(false);
-    if (error) {
-      setError('That email and password don’t match our records.');
+    if (result.error) {
+      setError(result.error === 'Invalid email or password'
+        ? 'That email and password don’t match our records.'
+        : result.error);
       return;
     }
     navigate('/', { replace: true });
@@ -43,7 +49,6 @@ export default function Login() {
 
   return (
     <div className="relative min-h-screen flex items-center justify-center px-4 py-10 bg-[var(--app-bg)]">
-      {/* Ambient brand wash */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-70"
@@ -127,13 +132,19 @@ export default function Login() {
               disabled={submitting}
               className={cn(
                 'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors',
-                submitting ? 'bg-primary-400 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700'
+                submitting ? 'bg-primary-400 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700',
               )}
             >
               <LogIn className="w-4 h-4" />
               {submitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <p className="mt-4 text-center text-xs text-gray-500">
+            <Link to="/forgot-password" className="text-primary-600 hover:text-primary-700 font-semibold">
+              Forgot your password?
+            </Link>
+          </p>
         </div>
 
         <p className="mt-6 text-center text-[11px] leading-relaxed text-gray-400 font-display italic">

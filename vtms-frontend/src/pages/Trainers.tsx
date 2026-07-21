@@ -3,6 +3,7 @@ import {
   GraduationCap, UserPlus, X, Pencil, PauseCircle, PlayCircle, Trash2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getAccessToken } from '../lib/session';
 import { useAuth } from '../contexts/AuthContext';
 import { cn, friendlyError } from '../lib/utils';
 import { countTrainerDependencies } from '../lib/deleteGuards';
@@ -109,12 +110,11 @@ export default function Trainers() {
       return;
     }
 
-    const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch('/api/invite-staff', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session?.access_token ?? ''}`,
+        Authorization: `Bearer ${getAccessToken() ?? ''}`,
       },
       body: JSON.stringify({
         email: form.email.trim(),
@@ -269,12 +269,11 @@ export default function Trainers() {
     setDeleteError(null);
     setDeleteLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/delete-staff', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token ?? ''}`,
+          Authorization: `Bearer ${getAccessToken() ?? ''}`,
         },
         body: JSON.stringify({ userId: deleteTarget.id }),
       });

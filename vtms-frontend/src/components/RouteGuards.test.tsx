@@ -30,14 +30,14 @@ function renderWithRouter(initialPath: string) {
 
 describe('RequireAuth', () => {
   it('redirects to /login when there is no session', () => {
-    mockUseAuth.mockReturnValue({ session: null, profile: null, loading: false });
+    mockUseAuth.mockReturnValue({ accessToken: null, profile: null, loading: false, signOut: vi.fn() });
     renderWithRouter('/protected');
     expect(screen.getByText('login page')).toBeDefined();
   });
 
   it('renders children when a session exists', () => {
     mockUseAuth.mockReturnValue({
-      session: { user: { id: '1' } },
+      accessToken: 'token',
       profile: { id: '1', fullName: 'A', email: 'a@b.com', role: 'admin', active: true },
       loading: false,
     });
@@ -47,19 +47,20 @@ describe('RequireAuth', () => {
 
   it('redirects to /login when the profile is deactivated', () => {
     mockUseAuth.mockReturnValue({
-      session: { user: { id: '1' } },
+      accessToken: 'token',
       profile: { id: '1', fullName: 'A', email: 'a@b.com', role: 'admin', active: false },
       loading: false,
+      signOut: vi.fn(),
     });
     renderWithRouter('/protected');
-    expect(screen.getByText('login page')).toBeDefined();
+    expect(screen.getByText('Account deactivated')).toBeDefined();
   });
 });
 
 describe('RequireRole', () => {
   it('redirects to /unauthorized when role is not allowed', () => {
     mockUseAuth.mockReturnValue({
-      session: { user: { id: '1' } },
+      accessToken: 'token',
       profile: { id: '1', fullName: 'A', email: 'a@b.com', role: 'trainer', active: true },
       loading: false,
     });
@@ -69,7 +70,7 @@ describe('RequireRole', () => {
 
   it('renders children when role is allowed', () => {
     mockUseAuth.mockReturnValue({
-      session: { user: { id: '1' } },
+      accessToken: 'token',
       profile: { id: '1', fullName: 'A', email: 'a@b.com', role: 'admin', active: true },
       loading: false,
     });

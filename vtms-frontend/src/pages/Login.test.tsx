@@ -5,12 +5,15 @@ import Login from './Login';
 import { ThemeProvider } from '../lib/theme';
 
 const mockSignIn = vi.fn();
-vi.mock('../lib/supabase', () => ({
-  supabase: { auth: { signInWithPassword: (...args: unknown[]) => mockSignIn(...args) } },
-}));
-
 vi.mock('../contexts/AuthContext', () => ({
-  useAuth: () => ({ session: null, profile: null, loading: false }),
+  useAuth: () => ({
+    accessToken: null,
+    profile: null,
+    loading: false,
+    signIn: (...args: unknown[]) => mockSignIn(...args),
+    completeSignIn: vi.fn(),
+    signOut: vi.fn(),
+  }),
 }));
 
 function renderLogin() {
@@ -24,19 +27,19 @@ function renderLogin() {
 }
 
 describe('Login', () => {
-  it('submits the trimmed email and password to Supabase', async () => {
-    mockSignIn.mockResolvedValue({ error: null });
+  it('submits email and password via custom auth', async () => {
+    mockSignIn.mockResolvedValue({});
     renderLogin();
 
     fireEvent.change(screen.getByPlaceholderText('you@streetchildren.org'), { target: { value: 'staff@scm.org' } });
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'secret123' } });
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
-    await waitFor(() => expect(mockSignIn).toHaveBeenCalledWith({ email: 'staff@scm.org', password: 'secret123' }));
+    await waitFor(() => expect(mockSignIn).toHaveBeenCalledWith('staff@scm.org', 'secret123'));
   });
 
   it('shows an error message when sign-in fails', async () => {
-    mockSignIn.mockResolvedValue({ error: { message: 'Invalid login credentials' } });
+    mockSignIn.mockResolvedValue({ error: 'Invalid email or password' });
     renderLogin();
 
     fireEvent.change(screen.getByPlaceholderText('you@streetchildren.org'), { target: { value: 'staff@scm.org' } });

@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  // Read .env.local from repo root (shared with Vercel API routes)
+  envDir: '..',
   plugins: [
     react(),
     VitePWA({

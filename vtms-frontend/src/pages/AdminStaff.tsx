@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { UserPlus, Trash2, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { getAccessToken } from '../lib/session';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
@@ -53,12 +54,11 @@ async function staffApi(
   endpoint: string,
   body: Record<string, unknown>,
 ): Promise<{ ok: boolean; error?: string }> {
-  const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session?.access_token ?? ''}`,
+      Authorization: `Bearer ${getAccessToken() ?? ''}`,
     },
     body: JSON.stringify(body),
   });
@@ -126,12 +126,11 @@ export default function AdminStaff() {
       return;
     }
 
-    const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch('/api/invite-staff', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session?.access_token ?? ''}`,
+        Authorization: `Bearer ${getAccessToken() ?? ''}`,
       },
       body: JSON.stringify({
         email: form.email,

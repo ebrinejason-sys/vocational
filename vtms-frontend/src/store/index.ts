@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
+import { getUserIdFromToken } from '../lib/session';
 import { resumeBatchStatus, resumeTraineeStatus, assertNoDependencies } from '../lib/lifecycle';
 import { countBatchDependencies, countTraineeDependencies } from '../lib/deleteGuards';
 import { friendlyError, setDisplayCurrency, type CurrencyCode } from '../lib/utils';
@@ -878,7 +879,7 @@ export const useStore = create<VTMSState>()(
       addProcurementRequest: async (input) => {
         const item = get().inventoryItems.find((i) => i.id === input.itemId);
         if (!item) throw new Error('Inventory item not found');
-        const { data: auth } = await supabase.auth.getUser();
+        const userId = getUserIdFromToken();
         const { data, error } = await supabase
           .from('procurement_requests')
           .insert({
@@ -886,7 +887,7 @@ export const useStore = create<VTMSState>()(
             quantity_requested: input.quantityRequested,
             estimated_cost: input.estimatedCost,
             status: 'pending',
-            requested_by: auth.user?.id ?? null,
+            requested_by: userId,
             assigned_to: input.assignedToId ?? null,
           })
           .select(PROCUREMENT_SELECT)
@@ -905,8 +906,7 @@ export const useStore = create<VTMSState>()(
         if (updates.status) row.status = updates.status;
         if (updates.assignedToId !== undefined) row.assigned_to = updates.assignedToId;
         if (updates.status === 'approved') {
-          const { data: auth } = await supabase.auth.getUser();
-          row.approved_by = auth.user?.id ?? null;
+          row.approved_by = getUserIdFromToken();
         }
         const { data, error } = await supabase
           .from('procurement_requests')
@@ -939,12 +939,12 @@ export const useStore = create<VTMSState>()(
           .eq('id', req.itemId);
         if (stockError) throw stockError;
 
-        const { data: auth } = await supabase.auth.getUser();
+        const userId = getUserIdFromToken();
         const { data, error } = await supabase
           .from('procurement_requests')
           .update({
             status: 'purchased',
-            approved_by: auth.user?.id ?? null,
+            approved_by: userId,
           })
           .eq('id', id)
           .select(PROCUREMENT_SELECT)
@@ -971,10 +971,10 @@ export const useStore = create<VTMSState>()(
       addProductionLog: (l) => set((s) => ({ productionLogs: [...s.productionLogs, l] })),
       addSale: (sl) => set((s) => ({ sales: [...s.sales, sl] })),
       addFinancialTransaction: async (t) => {
-        const { data: { user } } = await supabase.auth.getUser();
+        const userId = getUserIdFromToken();
         const { data, error } = await supabase
           .from('financial_transactions')
-          .insert(financialToRow(t, user?.id ?? null))
+          .insert(financialToRow(t, userId))
           .select('*')
           .single();
         if (error) throw error;
@@ -988,7 +988,7 @@ export const useStore = create<VTMSState>()(
         const current = get().financialTransactions.find((t) => t.id === id);
         if (!current) throw new Error('Transaction not found.');
         const merged: FinancialTransaction = { ...current, ...updates, id };
-        const { data: { user } } = await supabase.auth.getUser();
+        const userId = getUserIdFromToken();
         const row = financialToRow({
           batchId: merged.batchId,
           category: merged.category,
@@ -1003,7 +1003,7 @@ export const useStore = create<VTMSState>()(
           .update({
             ...row,
             updated_at: new Date().toISOString(),
-            updated_by: user?.id ?? null,
+            updated_by: userId,
           })
           .eq('id', id)
           .select('*')
@@ -1017,7 +1017,7 @@ export const useStore = create<VTMSState>()(
           old_values: current,
           new_values: updated,
           reason: trimmed,
-          changed_by: user?.id ?? null,
+          changed_by: userId,
         });
         if (logError) throw logError;
         set((s) => ({
@@ -1042,7 +1042,7 @@ export const useStore = create<VTMSState>()(
         if (!trimmed) throw new Error('A reason is required to delete a transaction.');
         const current = get().financialTransactions.find((t) => t.id === id);
         if (!current) throw new Error('Transaction not found.');
-        const { data: { user } } = await supabase.auth.getUser();
+        const userId = getUserIdFromToken();
         const { error: logError } = await supabase.from('financial_change_log').insert({
           action: 'transaction_delete',
           entity_type: 'financial_transaction',
@@ -1050,7 +1050,7 @@ export const useStore = create<VTMSState>()(
           old_values: current,
           new_values: null,
           reason: trimmed,
-          changed_by: user?.id ?? null,
+          changed_by: userId,
         });
         if (logError) throw logError;
         const { error } = await supabase.from('financial_transactions').delete().eq('id', id);
@@ -1077,14 +1077,14 @@ export const useStore = create<VTMSState>()(
         if (!trimmed) throw new Error('A reason is required to change currency.');
         const previous = get().currencyCode;
         if (previous === code) throw new Error('Currency is already set to that value.');
-        const { data: { user } } = await supabase.auth.getUser();
+        const userId = getUserIdFromToken();
         const { error } = await supabase
           .from('app_settings')
           .upsert({
             id: 'org',
             currency_code: code,
             updated_at: new Date().toISOString(),
-            updated_by: user?.id ?? null,
+            updated_by: userId,
           }, { onConflict: 'id' });
         if (error) throw error;
         const { error: logError } = await supabase.from('financial_change_log').insert({
@@ -1094,7 +1094,7 @@ export const useStore = create<VTMSState>()(
           old_values: { currency_code: previous },
           new_values: { currency_code: code },
           reason: trimmed,
-          changed_by: user?.id ?? null,
+          changed_by: userId,
         });
         if (logError) throw logError;
         setDisplayCurrency(code);

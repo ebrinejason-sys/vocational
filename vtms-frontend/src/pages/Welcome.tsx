@@ -1,21 +1,19 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { KeyRound, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import Brand from '../components/Brand';
 import ThemeToggle from '../components/ThemeToggle';
-import Preloader from '../components/Preloader';
 
-/**
- * Landing page for invite links. Supabase redirects invited staff here with
- * a session already established from the link's token; all they need to do
- * is choose a password before entering the app.
- */
 export default function Welcome() {
-  const { session, loading } = useAuth();
+  const { completeSignIn } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isReset = location.pathname === '/reset-password';
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get('token');
+
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,11 +21,13 @@ export default function Welcome() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
-  if (loading) return <Preloader label="Checking your invite…" />;
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!inviteToken) {
+      setError('This invite link is missing a token.');
+      return;
+    }
     if (password.length < 8) {
       setError('Password must be at least 8 characters.');
       return;
@@ -36,13 +36,22 @@ export default function Welcome() {
       setError('Passwords do not match.');
       return;
     }
+
     setSubmitting(true);
-    const { error } = await supabase.auth.updateUser({ password });
+    const res = await fetch('/api/auth/set-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: inviteToken, password }),
+    });
+    const data = (await res.json()) as { accessToken?: string; error?: string };
     setSubmitting(false);
-    if (error) {
-      setError(error.message);
+
+    if (!res.ok || !data.accessToken) {
+      setError(data.error ?? 'Could not set password.');
       return;
     }
+
+    await completeSignIn(data.accessToken);
     setDone(true);
     setTimeout(() => navigate('/', { replace: true }), 1200);
   }
@@ -59,20 +68,22 @@ export default function Welcome() {
       <div className="relative w-full max-w-sm animate-fade-in-up">
         <div className="flex flex-col items-center text-center mb-6">
           <Brand size="lg" markOnly className="mb-4" />
-          <h1 className="font-display text-2xl font-semibold text-gray-900">Welcome to the team</h1>
+          <h1 className="font-display text-2xl font-semibold text-gray-900">
+            {isReset ? 'Choose a new password' : 'Welcome to the team'}
+          </h1>
           <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-primary-600">
             Street Children Ministry · CTVET
           </p>
         </div>
 
         <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-6">
-          {!session ? (
+          {!inviteToken ? (
             <div className="text-center py-4">
               <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
               <h2 className="text-base font-bold text-gray-900">This invite link isn’t valid</h2>
               <p className="text-xs text-gray-500 mt-2 leading-relaxed">
-                It may have expired or already been used. Ask your administrator
-                to send a new invitation from the Staff page.
+                Open the full link from your invitation email, or ask an administrator
+                to send a new invite from the Staff page.
               </p>
             </div>
           ) : done ? (
@@ -84,9 +95,13 @@ export default function Welcome() {
           ) : (
             <>
               <div className="mb-5">
-                <h2 className="text-base font-bold text-gray-900">Choose your password</h2>
+                <h2 className="text-base font-bold text-gray-900">
+                  {isReset ? 'Reset your password' : 'Choose your password'}
+                </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Signed in as <span className="font-semibold text-gray-700">{session.user.email}</span>
+                  {isReset
+                    ? 'Enter a new password for your staff account.'
+                    : 'Create a password to activate your staff account.'}
                 </p>
               </div>
 
@@ -150,7 +165,7 @@ export default function Welcome() {
                   disabled={submitting}
                   className={cn(
                     'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors',
-                    submitting ? 'bg-primary-400 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700'
+                    submitting ? 'bg-primary-400 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700',
                   )}
                 >
                   {submitting ? 'Saving…' : 'Set password & continue'}

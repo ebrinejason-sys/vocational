@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FileUp, FileText, Loader2, Trash2, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getUserIdFromToken } from '../lib/session';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { friendlyError, cn } from '../lib/utils';
@@ -88,7 +89,7 @@ export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocu
         .upload(storagePath, file, { upsert: true, contentType: file.type });
       if (uploadError) throw uploadError;
 
-      const { data: auth } = await supabase.auth.getUser();
+      const userId = getUserIdFromToken();
       const existing = documents.find((d) => d.documentType === type);
       if (existing) {
         await supabase.storage.from(BUCKET).remove([existing.storagePath]).catch(() => {});
@@ -99,7 +100,7 @@ export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocu
             storage_path: storagePath,
             mime_type: file.type,
             file_size: file.size,
-            uploaded_by: auth.user?.id ?? null,
+            uploaded_by: userId,
             uploaded_at: new Date().toISOString(),
           })
           .eq('id', existing.id);
@@ -112,7 +113,7 @@ export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocu
           storage_path: storagePath,
           mime_type: file.type,
           file_size: file.size,
-          uploaded_by: auth.user?.id ?? null,
+          uploaded_by: userId,
         });
         if (insertError) throw insertError;
       }

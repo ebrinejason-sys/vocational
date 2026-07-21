@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { getAccessToken } from './session';
 
 export type FinancialNotifyAction =
   | 'transaction_update'
@@ -15,12 +15,11 @@ export async function notifyFinancialChange(payload: {
   oldValues?: Record<string, unknown> | null;
   newValues?: Record<string, unknown> | null;
 }): Promise<{ emailSent: boolean; emailWarning?: string }> {
-  const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch('/api/notify-financial-change', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session?.access_token ?? ''}`,
+      Authorization: `Bearer ${getAccessToken() ?? ''}`,
     },
     body: JSON.stringify(payload),
   });

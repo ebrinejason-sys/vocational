@@ -5,6 +5,8 @@ import { rolesWithAccess } from './lib/permissions';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Welcome from './pages/Welcome';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Unauthorized from './pages/Unauthorized';
 import Dashboard from './pages/Dashboard';
 import Batches from './pages/Batches';
@@ -31,6 +33,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/welcome" element={<Welcome />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
           <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<Dashboard />} />
