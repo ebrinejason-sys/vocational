@@ -9,21 +9,31 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [emailWarning, setEmailWarning] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setEmailWarning(null);
     setSubmitting(true);
     const res = await fetch('/api/auth/forgot-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim() }),
     });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      emailSent?: boolean;
+      emailWarning?: string;
+    };
     setSubmitting(false);
     if (!res.ok) {
-      setError('Something went wrong. Please try again.');
+      setError(data.error ?? 'Something went wrong. Please try again.');
       return;
+    }
+    if (data.emailSent === false && data.emailWarning) {
+      setEmailWarning(data.emailWarning);
     }
     setDone(true);
   }
@@ -46,10 +56,26 @@ export default function ForgotPassword() {
         <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-6">
           {done ? (
             <div className="text-center py-2">
-              <CheckCircle2 className="w-8 h-8 text-green-600 mx-auto mb-3" />
-              <p className="text-sm text-gray-600">
-                If that email is registered, we sent a reset link. Check your inbox.
-              </p>
+              {emailWarning ? (
+                <>
+                  <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+                  <p className="text-sm text-gray-700 font-semibold">Email could not be sent</p>
+                  <p className="text-xs text-gray-500 mt-2 leading-relaxed">{emailWarning}</p>
+                  <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+                    Usual fix: verify <code className="text-[10px]">scmtvet.com</code> in Resend,
+                    or temporarily set <code className="text-[10px]">EMAIL_FROM</code> to{' '}
+                    <code className="text-[10px]">VTMS &lt;onboarding@resend.dev&gt;</code>
+                    (only delivers to your Resend account email).
+                  </p>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-8 h-8 text-green-600 mx-auto mb-3" />
+                  <p className="text-sm text-gray-600">
+                    If that email is registered, we sent a reset link. Check your inbox (and spam).
+                  </p>
+                </>
+              )}
               <Link to="/login" className="inline-block mt-4 text-sm font-semibold text-primary-600 hover:text-primary-700">
                 Back to sign in
               </Link>

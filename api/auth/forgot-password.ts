@@ -15,26 +15,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const genericOk = {
-    ok: true,
-    message: 'If that email is registered, a reset link has been sent.',
-  };
+  // Always return the same public message so we don't leak whether an account exists.
+  const genericMessage = 'If that email is registered, a reset link has been sent.';
 
   try {
     const admin = getAdminClient();
-    const { data: profile } = await admin
+    const normalized = email.trim().toLowerCase();
+
+    // Case-insensitive match (older profiles may not be lowercased)
+    const { data: profile, error: profileError } = await admin
       .from('profiles')
       .select('id, full_name, email, active')
-      .eq('email', email.trim().toLowerCase())
+      .ilike('email', normalized)
       .maybeSingle();
 
+    if (profileError) {
+      console.error('forgot-password profile lookup', profileError.message);
+      res.status(200).json({
+        ok: true,
+        message: genericMessage,
+        emailSent: false,
+        emailWarning: 'Could not look up account. Confirm custom-auth SQL was applied.',
+      });
+      return;
+    }
+
     if (!profile?.active) {
-      res.status(200).json(genericOk);
+      res.status(200).json({ ok: true, message: genericMessage, emailSent: false });
       return;
     }
 
     const resetToken = newToken();
-    await admin
+    const { error: updateError } = await admin
       .from('profiles')
       .update({
         password_reset_token: resetToken,
@@ -42,10 +54,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
       .eq('id', profile.id);
 
-    const siteUrl = siteUrlFromRequest(req);
+    if (updateError) {
+      console.error('forgot-password update', updateError.message);
+      res.status(200).json({
+        ok: true,
+        message: genericMessage,
+        emailSent: false,
+        emailWarning:
+          'Could not create reset token. Run docs/migrations/2026-07-21-custom-auth.sql in Supabase.',
+      });
+      return;
+    }
+
+    const siteUrl = siteUrlFromRequest(req).replace(/\/$/, '');
     const resetUrl = `${siteUrl}/reset-password?token=${resetToken}`;
 
-    await sendEmail({
+    const mail = await sendEmail({
       to: profile.email,
       subject: 'Reset your VTMS password',
       text:
@@ -58,8 +82,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `<p>If you did not request this, you can ignore this email.</p>`,
     });
 
-    res.status(200).json(genericOk);
-  } catch {
-    res.status(200).json(genericOk);
+    if (!mail.sent) {
+      console.error('forgot-password email', mail.warning);
+    }
+
+    res.status(200).json({
+      ok: true,
+      message: genericMessage,
+      emailSent: mail.sent,
+      emailWarning: mail.warning,
+    });
+  } catch (err) {
+    console.error('forgot-password', err);
+    res.status(200).json({
+      ok: true,
+      message: genericMessage,
+      emailSent: false,
+      emailWarning: err instanceof Error ? err.message : 'Unexpected error',
+    });
   }
 }
