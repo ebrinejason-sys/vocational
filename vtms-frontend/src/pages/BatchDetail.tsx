@@ -19,6 +19,7 @@ import { COMPETENCY_LEVEL_LABELS, TRADE_OPTIONS } from '../types';
 import type { BatchStatus, CompetencyLevel, TradeType } from '../types';
 import { supabase } from '../lib/supabase';
 import { countBatchDependencies } from '../lib/deleteGuards';
+import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../lib/deleteRequests';
 import { formatDependencyBlock } from '../lib/lifecycle';
 import Modal from '../components/Modal';
 import { RegistrationForm } from './Trainees';
@@ -272,6 +273,26 @@ export default function BatchDetail() {
 
   async function openDelete() {
     if (!batch) return;
+    if (profile?.role !== 'admin') {
+      const reason = promptDeleteReason(batch.name);
+      if (!reason) return;
+      setLifecycleError(null);
+      setLifecycleLoading(true);
+      try {
+        await submitDeleteRequest({
+          entityType: 'batch',
+          entityId: batch.id,
+          entityLabel: batch.name,
+          reason,
+        });
+        window.alert('Delete request sent to admin for approval.');
+      } catch (err) {
+        setLifecycleError(friendlyError(err, 'Could not submit delete request.'));
+      } finally {
+        setLifecycleLoading(false);
+      }
+      return;
+    }
     setDeleteError(null);
     setDeleteCounts(null);
     setDeleteBlocked(false);
@@ -290,6 +311,7 @@ export default function BatchDetail() {
 
   async function confirmDelete() {
     if (!batch || deleteBlocked) return;
+    if (!confirmAdminDelete(batch.name)) return;
     setDeleteError(null);
     setDeleteLoading(true);
     try {
@@ -445,7 +467,7 @@ export default function BatchDetail() {
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete
+                {profile?.role === 'admin' ? 'Delete' : 'Request delete'}
               </button>
             </>
           )}

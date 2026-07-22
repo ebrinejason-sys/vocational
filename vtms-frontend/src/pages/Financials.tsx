@@ -13,6 +13,7 @@ import { canEdit } from '../lib/permissions';
 import { formatCurrency, formatDate, today, cn, friendlyError, type CurrencyCode } from '../lib/utils';
 import { generateReceiptPdf } from '../lib/export';
 import { fetchReceiptsForBatch, createReceipt } from '../lib/receipts';
+import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../lib/deleteRequests';
 import type { FinancialTransaction, TransactionType, Receipt } from '../types';
 import ExportToolbar from '../components/ExportToolbar';
 import Modal from '../components/Modal';
@@ -253,16 +254,30 @@ export default function Financials() {
 
   async function handleDelete(t: FinancialTransaction) {
     if (!mayEdit) return;
-    const reason = window.prompt(
-      `Delete this ${t.type} (${t.category}, ${formatCurrency(t.amount)})?\n\nEnter a reason (required — admin/director will be notified):`
-    );
-    if (reason === null) return;
-    if (!reason.trim()) {
-      setNotice('Delete cancelled — a reason is required.');
+    const label = `${t.type} · ${t.category} · ${formatCurrency(t.amount)}`;
+    if (profile?.role !== 'admin') {
+      const reason = promptDeleteReason(label);
+      if (!reason) return;
+      try {
+        await submitDeleteRequest({
+          entityType: 'financial_transaction',
+          entityId: t.id,
+          entityLabel: label,
+          reason,
+        });
+        setNotice('Delete request sent to admin for approval.');
+      } catch (err) {
+        setNotice(friendlyError(err, 'Could not submit delete request.'));
+      }
       return;
     }
+    if (!confirmAdminDelete(label)) return;
+    const reason = window.prompt(
+      'Optional note for the activity log / finance notification (or leave blank):',
+    );
+    if (reason === null) return;
     try {
-      const result = await deleteFinancialTransaction(t.id, reason);
+      const result = await deleteFinancialTransaction(t.id, reason.trim() || 'Admin delete');
       if (result.emailWarning) setNotice(result.emailWarning);
     } catch (err) {
       setNotice(friendlyError(err, 'Could not delete transaction.'));

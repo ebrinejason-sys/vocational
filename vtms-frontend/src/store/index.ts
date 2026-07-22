@@ -483,7 +483,7 @@ interface VTMSState {
     quantityRequested: number;
     estimatedCost: number;
     assignedToId?: string | null;
-  }) => Promise<void>;
+  }) => Promise<{ id: string; itemName: string }>;
   updateProcurementRequest: (id: string, updates: Partial<Pick<ProcurementRequest, 'status' | 'assignedToId'>>) => Promise<void>;
   /** Mark purchased and add the requested quantity into on-hand stock. */
   fulfillProcurementRequest: (id: string) => Promise<void>;
@@ -918,6 +918,7 @@ export const useStore = create<VTMSState>()(
         set((s) => ({
           procurementRequests: [mapped, ...s.procurementRequests],
         }));
+        return { id: mapped.id, itemName: mapped.itemName };
       },
 
       updateProcurementRequest: async (id, updates) => {

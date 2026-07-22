@@ -5,6 +5,7 @@ import {
 import { useStore, emptyInterviewResponses, emptyInterviewScores, computeInterviewTotal } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
+import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../lib/deleteRequests';
 import { cn, formatDate, friendlyError, today } from '../lib/utils';
 import type {
   InterviewDecision,
@@ -270,7 +271,27 @@ export default function Interviews() {
 
   async function handleDelete(id: string) {
     if (!mayEdit) return;
-    if (!window.confirm('Delete this interview scoresheet?')) return;
+    const interview = traineeInterviews.find((i) => i.id === id);
+    const label = interview
+      ? `Interview ${interview.interviewDate} (${interview.traineeId.slice(0, 8)}…)`
+      : `Interview ${id}`;
+    if (profile?.role !== 'admin') {
+      const reason = promptDeleteReason(label);
+      if (!reason) return;
+      try {
+        await submitDeleteRequest({
+          entityType: 'trainee_interview',
+          entityId: id,
+          entityLabel: label,
+          reason,
+        });
+        window.alert('Delete request sent to admin for approval.');
+      } catch (err) {
+        setSubmitError(friendlyError(err, 'Could not submit delete request.'));
+      }
+      return;
+    }
+    if (!confirmAdminDelete(label)) return;
     try {
       await deleteTraineeInterview(id);
       if (form.id === id) {

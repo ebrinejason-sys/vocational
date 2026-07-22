@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { cn, formatCurrency, formatDate, friendlyError, getDisplayCurrency } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { notifyProcurementAssignment } from '../lib/procurementNotify';
 import Modal from '../components/Modal';
 import ExportToolbar from '../components/ExportToolbar';
 
@@ -99,16 +100,33 @@ export default function Procurement() {
     if (!validate()) return;
     setActionError(null);
     try {
-      await addProcurementRequest({
+      const created = await addProcurementRequest({
         itemId: form.itemId,
         quantityRequested: Number(form.quantityRequested),
         estimatedCost: Number(form.estimatedCost || autoCost),
         assignedToId: form.assignedToId,
       });
+      try {
+        const notify = await notifyProcurementAssignment({
+          requestId: created.id,
+          assignedToId: form.assignedToId,
+          itemName: created.itemName,
+          quantityRequested: Number(form.quantityRequested),
+          estimatedCost: Number(form.estimatedCost || autoCost),
+        });
+        setBanner(
+          notify.emailSent
+            ? 'Request submitted — assigned staff emailed.'
+            : `Request submitted.${notify.emailWarning ? ` Email: ${notify.emailWarning}` : ' Email may not have sent.'}`,
+        );
+      } catch (notifyErr) {
+        setBanner(
+          `Request submitted, but email failed: ${friendlyError(notifyErr, 'could not notify assignee')}`,
+        );
+      }
       setForm(EMPTY);
       setShowForm(false);
-      setBanner('Procurement request submitted.');
-      setTimeout(() => setBanner(null), 3000);
+      setTimeout(() => setBanner(null), 4500);
     } catch (err) {
       setActionError(friendlyError(err, 'Failed to submit procurement request.'));
     }

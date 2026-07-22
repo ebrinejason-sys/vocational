@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { cn, formatCurrency, friendlyError, today, getDisplayCurrency } from '../lib/utils';
 import { TRADE_OPTIONS, type InventoryItem, type TradeType } from '../types';
+import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../lib/deleteRequests';
 import Modal from '../components/Modal';
 import ExportToolbar from '../components/ExportToolbar';
 
@@ -49,10 +50,16 @@ const EMPTY_ITEM: ItemForm = {
   category: 'Material',
   unit: 'pcs',
   quantityOnHand: '0',
-  reorderLevel: '5',
+  reorderLevel: '0',
   unitCost: '',
   tradeRelevance: [],
 };
+
+function reorderFromOpening(qtyRaw: string): string {
+  const n = Number(qtyRaw);
+  if (!Number.isFinite(n) || n < 0) return '0';
+  return String(Math.round(n * 0.5 * 100) / 100);
+}
 
 const EMPTY_USAGE: UsageForm = { itemId: '', quantityUsed: '', batchId: '', purpose: '' };
 const EMPTY_RECEIVE: ReceiveForm = { itemId: '', quantity: '', note: '' };
@@ -122,10 +129,10 @@ export default function Inventory() {
       return;
     }
     const qty = Number(itemForm.quantityOnHand);
-    const reorder = Number(itemForm.reorderLevel);
+    const reorder = Number(reorderFromOpening(itemForm.quantityOnHand));
     const cost = Number(itemForm.unitCost);
-    if (isNaN(qty) || qty < 0 || isNaN(reorder) || reorder < 0 || isNaN(cost) || cost < 0) {
-      setFormError('Enter valid numbers for quantity, reorder level, and unit cost.');
+    if (isNaN(qty) || qty < 0 || isNaN(cost) || cost < 0) {
+      setFormError('Enter valid numbers for quantity and unit cost.');
       return;
     }
     try {
@@ -243,10 +250,25 @@ export default function Inventory() {
   }
 
   async function handleDeleteItem(item: InventoryItem) {
-    const confirmed = window.confirm(
-      `Delete “${item.name}” from inventory?\n\nThis also removes its usage and procurement history.`,
-    );
-    if (!confirmed) return;
+    if (profile?.role !== 'admin') {
+      const reason = promptDeleteReason(item.name);
+      if (!reason) return;
+      setFormError(null);
+      try {
+        await submitDeleteRequest({
+          entityType: 'inventory_item',
+          entityId: item.id,
+          entityLabel: item.name,
+          reason,
+        });
+        setBanner('Delete request sent to admin for approval.');
+        setTimeout(() => setBanner(null), 4000);
+      } catch (err) {
+        setFormError(friendlyError(err, 'Could not submit delete request.'));
+      }
+      return;
+    }
+    if (!confirmAdminDelete(item.name)) return;
     setFormError(null);
     try {
       await deleteInventoryItem(item.id);
@@ -448,15 +470,15 @@ export default function Inventory() {
                                 Edit stock
                               </button>
                             )}
-                            {mayDelete && (
+                            {(mayDelete || mayEdit) && (
                               <button
                                 type="button"
                                 onClick={() => void handleDeleteItem(item)}
                                 className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline"
-                                title="Delete item"
+                                title={mayDelete ? 'Delete item' : 'Request admin delete'}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
-                                Delete
+                                {mayDelete ? 'Delete' : 'Request delete'}
                               </button>
                             )}
                           </div>
@@ -598,11 +620,30 @@ export default function Inventory() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Opening qty *</label>
-                <input className={inputCls} value={itemForm.quantityOnHand} onChange={(e) => setItemForm({ ...itemForm, quantityOnHand: e.target.value })} />
+                <input
+                  className={inputCls}
+                  value={itemForm.quantityOnHand}
+                  onChange={(e) => {
+                    const quantityOnHand = e.target.value;
+                    setItemForm({
+                      ...itemForm,
+                      quantityOnHand,
+                      reorderLevel: reorderFromOpening(quantityOnHand),
+                    });
+                  }}
+                />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Reorder level *</label>
-                <input className={inputCls} value={itemForm.reorderLevel} onChange={(e) => setItemForm({ ...itemForm, reorderLevel: e.target.value })} />
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Reorder level
+                  <span className="ml-1 font-normal text-gray-400">(auto 50% of opening)</span>
+                </label>
+                <input
+                  className={cn(inputCls, 'bg-gray-50 text-gray-600')}
+                  value={itemForm.reorderLevel}
+                  readOnly
+                  title="Always 50% of opening quantity"
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Unit cost ({getDisplayCurrency()}) *</label>

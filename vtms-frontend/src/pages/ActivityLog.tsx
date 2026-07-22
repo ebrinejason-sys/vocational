@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Activity, RefreshCw, ShieldAlert } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import { friendlyError, cn } from '../lib/utils';
+import { reviewDeleteRequest } from '../lib/deleteRequests';
 
 interface ActivityRow {
   id: string;
@@ -14,12 +16,29 @@ interface ActivityRow {
   created_at: string;
 }
 
+interface DeleteRequestRow {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  entity_label: string;
+  reason: string;
+  status: string;
+  created_at: string;
+  requested_by: string | null;
+  requester?: { full_name: string; email: string } | null;
+}
+
 export default function ActivityLogPage() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
   const [rows, setRows] = useState<ActivityRow[]>([]);
+  const [deleteRequests, setDeleteRequests] = useState<DeleteRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reviewBusy, setReviewBusy] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     const { data, error: loadError } = await supabase
@@ -33,12 +52,65 @@ export default function ActivityLogPage() {
     } else {
       setRows((data ?? []) as ActivityRow[]);
     }
+
+    if (profile?.role === 'admin' || profile?.role === 'director') {
+      const { data: reqs, error: reqError } = await supabase
+        .from('delete_requests')
+        .select('id, entity_type, entity_id, entity_label, reason, status, created_at, requested_by, profiles:requested_by(full_name, email)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+      if (!reqError && reqs) {
+        setDeleteRequests(
+          reqs.map((r) => {
+            const requesterRaw = r.profiles as
+              | { full_name: string; email: string }
+              | { full_name: string; email: string }[]
+              | null;
+            const requester = Array.isArray(requesterRaw) ? requesterRaw[0] ?? null : requesterRaw;
+            return {
+              id: r.id as string,
+              entity_type: r.entity_type as string,
+              entity_id: r.entity_id as string,
+              entity_label: r.entity_label as string,
+              reason: r.reason as string,
+              status: r.status as string,
+              created_at: r.created_at as string,
+              requested_by: r.requested_by as string | null,
+              requester,
+            };
+          }),
+        );
+      } else {
+        setDeleteRequests([]);
+      }
+    }
+
     setLoading(false);
-  }
+  }, [profile?.role]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
+
+  async function handleReview(requestId: string, decision: 'approve' | 'reject') {
+    if (!isAdmin) return;
+    const note =
+      decision === 'reject'
+        ? window.prompt('Optional note to the requester (why rejected):') ?? undefined
+        : undefined;
+    if (decision === 'reject' && note === null) return;
+    setReviewBusy(requestId);
+    setBanner(null);
+    try {
+      await reviewDeleteRequest({ requestId, decision, reviewNote: note || undefined });
+      setBanner(decision === 'approve' ? 'Delete approved and executed.' : 'Delete request rejected.');
+      await load();
+    } catch (err) {
+      setBanner(friendlyError(err, 'Could not review request.'));
+    } finally {
+      setReviewBusy(null);
+    }
+  }
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
@@ -47,7 +119,9 @@ export default function ActivityLogPage() {
           <Activity className="w-5 h-5 text-primary-600" />
           <div>
             <h1 className="font-display text-xl font-semibold text-gray-900">Activity log</h1>
-            <p className="text-xs text-gray-500">Recent actions across staff accounts (newest first).</p>
+            <p className="text-xs text-gray-500">
+              Staff actions and pending delete requests (newest first).
+            </p>
           </div>
         </div>
         <button
@@ -62,6 +136,70 @@ export default function ActivityLogPage() {
 
       {error && (
         <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+      )}
+      {banner && (
+        <p className="text-xs text-gray-700 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">{banner}</p>
+      )}
+
+      {(profile?.role === 'admin' || profile?.role === 'director') && (
+        <div className="bg-white rounded-xl border border-amber-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-amber-50 flex items-center gap-2 bg-amber-50/60">
+            <ShieldAlert className="w-4 h-4 text-amber-700" />
+            <div>
+              <h2 className="text-sm font-semibold text-amber-900">Pending delete requests</h2>
+              <p className="text-[11px] text-amber-800/80">
+                Only admins can approve (executes delete) or reject.
+              </p>
+            </div>
+          </div>
+          {loading ? (
+            <p className="text-sm text-gray-400 p-5 text-center">Loading…</p>
+          ) : deleteRequests.length === 0 ? (
+            <p className="text-sm text-gray-400 p-5 text-center">No pending delete requests.</p>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {deleteRequests.map((r) => (
+                <li key={r.id} className="px-4 py-3 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {r.entity_type}: {r.entity_label}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Requested by {r.requester?.full_name ?? 'Staff'}
+                        {r.requester?.email ? ` (${r.requester.email})` : ''} ·{' '}
+                        {new Date(r.created_at).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-gray-700 mt-1">
+                        <span className="font-semibold">Reason:</span> {r.reason}
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          disabled={reviewBusy === r.id}
+                          onClick={() => void handleReview(r.id, 'approve')}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                        >
+                          Approve delete
+                        </button>
+                        <button
+                          type="button"
+                          disabled={reviewBusy === r.id}
+                          onClick={() => void handleReview(r.id, 'reject')}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">

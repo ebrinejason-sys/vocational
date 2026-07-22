@@ -5,6 +5,7 @@ import { getUserIdFromToken } from '../lib/session';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { friendlyError, cn } from '../lib/utils';
+import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../lib/deleteRequests';
 import {
   TRAINEE_DOCUMENT_LABELS,
   type TraineeDocument,
@@ -127,7 +128,25 @@ export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocu
 
   async function handleDelete(doc: TraineeDocument) {
     if (!mayEdit) return;
-    if (!window.confirm(`Remove ${TRAINEE_DOCUMENT_LABELS[doc.documentType]} for ${traineeName}?`)) return;
+    const label = `${TRAINEE_DOCUMENT_LABELS[doc.documentType]} — ${traineeName}`;
+    if (profile?.role !== 'admin') {
+      const reason = promptDeleteReason(label);
+      if (!reason) return;
+      setError(null);
+      try {
+        await submitDeleteRequest({
+          entityType: 'trainee_document',
+          entityId: doc.id,
+          entityLabel: label,
+          reason,
+        });
+        window.alert('Delete request sent to admin for approval.');
+      } catch (err) {
+        setError(friendlyError(err, 'Could not submit delete request.'));
+      }
+      return;
+    }
+    if (!confirmAdminDelete(label)) return;
     setError(null);
     try {
       await supabase.storage.from(BUCKET).remove([doc.storagePath]).catch(() => {});

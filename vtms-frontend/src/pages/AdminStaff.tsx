@@ -4,6 +4,7 @@ import { getAccessToken } from '../lib/session';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
+import { confirmAdminDelete } from '../lib/deleteRequests';
 import {
   ROLE_LABELS,
   DOMAIN_LABELS,
@@ -228,10 +229,7 @@ export default function AdminStaff() {
 
   async function handleDelete(member: StaffProfile) {
     if (member.id === currentUser?.id) return;
-    const confirmed = window.confirm(
-      `Permanently delete ${member.fullName} (${member.email})?\n\nThis removes their login and cannot be undone.`,
-    );
-    if (!confirmed) return;
+    if (!confirmAdminDelete(`${member.fullName} (${member.email})`)) return;
 
     setPendingId(member.id);
     setMessage(null);

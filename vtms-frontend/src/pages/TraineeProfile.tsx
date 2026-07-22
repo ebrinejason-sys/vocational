@@ -9,6 +9,7 @@ import {
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
+import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../lib/deleteRequests';
 import { cn, formatDate, getVulnerabilityLabel, getAttendanceRate, friendlyError } from '../lib/utils';
 import { countTraineeDependencies } from '../lib/deleteGuards';
 import { formatDependencyBlock } from '../lib/lifecycle';
@@ -346,6 +347,28 @@ export default function TraineeProfile() {
   }
 
   async function openDelete() {
+    const label = `${currentTrainee.firstName} ${currentTrainee.lastName}`;
+    if (profile?.role !== 'admin') {
+      const reason = promptDeleteReason(label);
+      if (!reason) return;
+      setLifecycleError(null);
+      setLifecycleLoading(true);
+      try {
+        await submitDeleteRequest({
+          entityType: 'trainee',
+          entityId: currentTrainee.id,
+          entityLabel: label,
+          reason,
+        });
+        window.alert('Delete request sent to admin for approval.');
+      } catch (err) {
+        setLifecycleError(friendlyError(err, 'Could not submit delete request.'));
+      } finally {
+        setLifecycleLoading(false);
+      }
+      return;
+    }
+
     setDeleteError(null);
     setDeleteCounts(null);
     setDeleteBlocked(false);
@@ -364,6 +387,8 @@ export default function TraineeProfile() {
 
   async function confirmDelete() {
     if (deleteBlocked) return;
+    const label = `${currentTrainee.firstName} ${currentTrainee.lastName}`;
+    if (!confirmAdminDelete(label)) return;
     setDeleteError(null);
     setDeleteLoading(true);
     try {
@@ -465,7 +490,7 @@ export default function TraineeProfile() {
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete
+                {profile?.role === 'admin' ? 'Delete' : 'Request delete'}
               </button>
             </div>
           )}
