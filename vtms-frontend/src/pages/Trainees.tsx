@@ -2,14 +2,32 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, UserPlus, X, ChevronRight, User,
-  Phone, MapPin, AlertCircle, CheckCircle,
+  Phone, MapPin, AlertCircle, CheckCircle, FileUp, Loader2,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { cn, getVulnerabilityLabel, formatDate, friendlyError } from '../lib/utils';
-import type { Trainee, VulnerabilityAssessment, TraineeStatus, TradeType } from '../types';
+import { uploadTraineeDocument } from '../lib/traineeDocuments';
+import type {
+  Trainee,
+  VulnerabilityAssessment,
+  TraineeStatus,
+  TradeType,
+  TraineeDocumentType,
+} from '../types';
+import { TRAINEE_DOCUMENT_LABELS } from '../types';
 import ExportToolbar from '../components/ExportToolbar';
+
+const REGISTRATION_DOC_TYPES: TraineeDocumentType[] = [
+  'photo',
+  'national_id',
+  'recommendation_letter',
+  'birth_certificate',
+  'signed_rules',
+];
+
+type PendingDocs = Partial<Record<TraineeDocumentType, File | null>>;
 
 // ── Vulnerability score computation ──────────────────────────────────────────
 
@@ -150,8 +168,11 @@ export function RegistrationForm({
   const [form, setForm] = useState<FormData>(() =>
     defaultForm(resolvedBatchId, initialTrades[0]?.trade ?? '')
   );
+  const [docs, setDocs] = useState<PendingDocs>({});
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploadWarning, setUploadWarning] = useState<string | null>(null);
 
   const selectedBatch = batches.find((b) => b.id === form.batchId);
   const tradeOptions = selectedBatch?.trades ?? [];
@@ -195,9 +216,19 @@ export function RegistrationForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function setDocFile(type: TraineeDocumentType, file: File | null) {
+    if (file && file.size > 10 * 1024 * 1024) {
+      setSubmitError(`${TRAINEE_DOCUMENT_LABELS[type]} exceeds the 10 MB limit.`);
+      return;
+    }
+    setDocs((prev) => ({ ...prev, [type]: file }));
+    setSubmitError(null);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitError(null);
+    setUploadWarning(null);
     if (!registerableBatches.length) {
       setSubmitError('Create an active batch first, then register trainees into it.');
       return;
@@ -222,8 +253,9 @@ export function RegistrationForm({
       setSubmitError('Enter the reason for selecting this trade.');
       return;
     }
+    setSubmitting(true);
     try {
-      await addTrainee({
+      const traineeId = await addTrainee({
         batchId: form.batchId,
         trade: form.trade,
         firstName: form.firstName.trim(),
@@ -241,15 +273,37 @@ export function RegistrationForm({
         graduationDate: null,
         photo: null,
       });
+
+      const pending = REGISTRATION_DOC_TYPES
+        .map((type) => ({ type, file: docs[type] ?? null }))
+        .filter((d): d is { type: TraineeDocumentType; file: File } => Boolean(d.file));
+
+      const failed: string[] = [];
+      for (const { type, file } of pending) {
+        try {
+          await uploadTraineeDocument({ traineeId, documentType: type, file });
+        } catch (err) {
+          failed.push(
+            `${TRAINEE_DOCUMENT_LABELS[type]}: ${friendlyError(err, 'upload failed')}`,
+          );
+        }
+      }
+      if (failed.length) {
+        setUploadWarning(
+          `Trainee saved, but some documents failed: ${failed.join('; ')}. You can retry from their profile.`,
+        );
+      }
       setSubmitted(true);
     } catch (err) {
       setSubmitError(friendlyError(err, 'Failed to register trainee.'));
+    } finally {
+      setSubmitting(false);
     }
   }
 
   if (submitted) {
     return (
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 flex flex-col items-center gap-4">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 flex flex-col items-center gap-4">
         <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
           <CheckCircle className="w-7 h-7 text-green-600" />
         </div>
@@ -258,6 +312,11 @@ export function RegistrationForm({
           <p className="text-sm text-gray-500 mt-1">
             {form.firstName} {form.lastName} was saved as a prospect. Complete their interview on the Interviews page to enroll.
           </p>
+          {uploadWarning && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3 text-left">
+              {uploadWarning}
+            </p>
+          )}
         </div>
         <div className="flex gap-3">
           <button
@@ -266,6 +325,8 @@ export function RegistrationForm({
                 ?? registerableBatches.find((b) => b.id === resolvedBatchId)?.trades
                 ?? [];
               setForm(defaultForm(form.batchId || resolvedBatchId, trades[0]?.trade ?? ''));
+              setDocs({});
+              setUploadWarning(null);
               setSubmitted(false);
             }}
             className="px-4 py-2 text-sm font-medium text-primary-600 border border-primary-300 rounded-lg hover:bg-primary-50 transition-colors"
@@ -513,18 +574,91 @@ export function RegistrationForm({
         </div>
       </div>
 
+      {/* Documents & photo */}
+      <div className={sectionCls}>
+        <div className="border-b border-gray-200 pb-2">
+          <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+            <FileUp className="w-4 h-4 text-primary-600" />
+            Documents &amp; Photo
+          </h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Attach a profile photo plus National ID, recommendation letter, birth certificate, and signed rules.
+            You can also add or replace these later on the trainee profile. Max 10 MB each.
+          </p>
+        </div>
+        <ul className="space-y-3">
+          {REGISTRATION_DOC_TYPES.map((type) => {
+            const file = docs[type] ?? null;
+            const isPhoto = type === 'photo';
+            return (
+              <li
+                key={type}
+                className={cn(
+                  'flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border',
+                  file ? 'border-green-200 bg-green-50/50' : 'border-gray-200 bg-gray-50',
+                )}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800">{TRAINEE_DOCUMENT_LABELS[type]}</p>
+                  {file ? (
+                    <p className="text-xs text-gray-500 truncate">{file.name}</p>
+                  ) : (
+                    <p className="text-xs text-gray-400">
+                      {isPhoto ? 'Recommended — jpg or png' : 'Optional — pdf, jpg, png, or doc'}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {file && (
+                    <button
+                      type="button"
+                      onClick={() => setDocFile(type, null)}
+                      className="px-2 py-1 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <label className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg cursor-pointer bg-primary-600 text-white border border-primary-600 hover:bg-primary-700">
+                    <FileUp className="w-3.5 h-3.5" />
+                    {file ? 'Replace' : 'Choose file'}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept={isPhoto ? 'image/*' : '.pdf,.jpg,.jpeg,.png,.doc,.docx'}
+                      onChange={(e) => {
+                        setDocFile(type, e.target.files?.[0] ?? null);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
       {submitError && (
         <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{submitError}</p>
       )}
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-3">
-        <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={submitting}
+          className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+        >
           Cancel
         </button>
-        <button type="submit" className="px-5 py-2 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2">
-          <UserPlus className="w-4 h-4" />
-          Register Trainee
+        <button
+          type="submit"
+          disabled={submitting}
+          className="px-5 py-2 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-60"
+        >
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+          {submitting ? 'Saving…' : 'Register Trainee'}
         </button>
       </div>
     </form>

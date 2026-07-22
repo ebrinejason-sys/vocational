@@ -467,7 +467,7 @@ interface VTMSState {
   fetchInitialData: () => Promise<void>;
   resetSessionData: () => void;
   setActiveBatch: (id: string) => void;
-  addTrainee: (t: Omit<Trainee, 'id'>) => Promise<void>;
+  addTrainee: (t: Omit<Trainee, 'id'>) => Promise<string>;
   updateTrainee: (id: string, updates: Partial<Trainee>) => Promise<void>;
   pauseTrainee: (id: string) => Promise<void>;
   resumeTrainee: (id: string) => Promise<void>;
@@ -774,6 +774,7 @@ export const useStore = create<VTMSState>()(
         if (error) throw error;
         const trainee = traineeFromRow(data as TraineeRow);
         set((s) => ({ trainees: [...s.trainees, trainee] }));
+        return trainee.id;
       },
 
       updateTrainee: async (id, updates) => {
