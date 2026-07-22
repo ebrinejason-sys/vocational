@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { getUserIdFromToken } from '../lib/session';
 import { resumeBatchStatus, resumeTraineeStatus, assertNoDependencies } from '../lib/lifecycle';
 import { countBatchDependencies, countTraineeDependencies } from '../lib/deleteGuards';
-import { friendlyError, setDisplayCurrency, type CurrencyCode } from '../lib/utils';
+import { friendlyError, setDisplayCurrency, setCurrencyRates, type CurrencyCode } from '../lib/utils';
 import { notifyFinancialChange } from '../lib/financialNotify';
 import type {
   Batch, BatchStatus, BatchTradeAssignment, Trainee, Module, CompetencyAssessment, AttendanceRecord,
@@ -459,6 +459,7 @@ interface VTMSState {
   jobPlacements: JobPlacement[];
   traineeInterviews: TraineeInterview[];
   currencyCode: CurrencyCode;
+  currencyRates: Record<string, number>;
   notifications: AppNotification[];
   activeBatchId: string;
   dataLoaded: boolean;
@@ -497,6 +498,7 @@ interface VTMSState {
   ) => Promise<{ emailWarning?: string }>;
   deleteFinancialTransaction: (id: string, reason: string) => Promise<{ emailWarning?: string }>;
   updateCurrencyCode: (code: CurrencyCode, reason: string) => Promise<{ emailWarning?: string }>;
+  upsertCurrencyRate: (code: CurrencyCode, label: string, unitsPerUsd: number) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   refreshNotifications: () => Promise<void>;
@@ -538,6 +540,7 @@ export const useStore = create<VTMSState>()(
       jobPlacements: SEED_JOB_PLACEMENTS,
       traineeInterviews: [],
       currencyCode: 'USD',
+      currencyRates: { USD: 1 },
       notifications: [],
       activeBatchId: '',
       dataLoaded: false,
@@ -553,6 +556,7 @@ export const useStore = create<VTMSState>()(
           financialResult,
           settingsResult,
           notificationsResult,
+          ratesResult,
         ] = await Promise.all([
           supabase.from('batches').select(BATCH_SELECT).order('start_date', { ascending: false }),
           supabase.from('trainees').select('*'),
@@ -563,6 +567,7 @@ export const useStore = create<VTMSState>()(
           supabase.from('financial_transactions').select('*').order('transaction_date', { ascending: false }),
           supabase.from('app_settings').select('currency_code').eq('id', 'org').maybeSingle(),
           supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50),
+          supabase.from('currency_rates').select('code, units_per_usd'),
         ]);
 
         // Batches/trainees are required; inventory/procurement soft-fail so a
@@ -576,6 +581,7 @@ export const useStore = create<VTMSState>()(
         if (financialResult.error) console.warn('financial_transactions load failed', financialResult.error);
         if (settingsResult.error) console.warn('app_settings load failed', settingsResult.error);
         if (notificationsResult.error) console.warn('notifications load failed', notificationsResult.error);
+        if (ratesResult.error) console.warn('currency_rates load failed', ratesResult.error);
 
         const batches = (batchResult.data ?? []).map((r) => batchFromRow(r as BatchRow));
         const trainees = (traineeResult.data ?? []).map((r) => traineeFromRow(r as TraineeRow));
@@ -596,6 +602,15 @@ export const useStore = create<VTMSState>()(
           : (financialResult.data ?? []).map((r) => financialFromRow(r as FinancialTransactionRow));
         const currencyCode = (settingsResult.data?.currency_code as CurrencyCode | undefined) ?? 'USD';
         setDisplayCurrency(currencyCode);
+        const currencyRates: Record<string, number> = { USD: 1 };
+        if (!ratesResult.error && ratesResult.data) {
+          for (const row of ratesResult.data) {
+            const code = String(row.code);
+            const rate = Number(row.units_per_usd);
+            if (code && Number.isFinite(rate) && rate > 0) currencyRates[code] = rate;
+          }
+        }
+        setCurrencyRates(currencyRates);
         const notifications = notificationsResult.error
           ? []
           : (notificationsResult.data ?? []).map((r) => notificationFromRow(r as NotificationRow));
@@ -613,6 +628,7 @@ export const useStore = create<VTMSState>()(
           traineeInterviews,
           financialTransactions,
           currencyCode,
+          currencyRates,
           notifications,
           activeBatchId,
           dataLoaded: true,
@@ -628,6 +644,7 @@ export const useStore = create<VTMSState>()(
         traineeInterviews: [],
         financialTransactions: [],
         currencyCode: 'USD',
+        currencyRates: { USD: 1 },
         notifications: [],
         activeBatchId: '',
         dataLoaded: false,
@@ -1135,6 +1152,22 @@ export const useStore = create<VTMSState>()(
         return { emailWarning: notify.emailWarning };
       },
 
+      upsertCurrencyRate: async (code, label, unitsPerUsd) => {
+        if (unitsPerUsd <= 0) throw new Error('Rate must be greater than zero');
+        const userId = getUserIdFromToken();
+        const { error } = await supabase.from('currency_rates').upsert({
+          code,
+          label,
+          units_per_usd: unitsPerUsd,
+          updated_at: new Date().toISOString(),
+          updated_by: userId,
+        }, { onConflict: 'code' });
+        if (error) throw error;
+        const next = { ...get().currencyRates, [code]: unitsPerUsd, USD: 1 };
+        setCurrencyRates(next);
+        set({ currencyRates: next });
+      },
+
       refreshNotifications: async () => {
         const { data, error } = await supabase
           .from('notifications')
@@ -1259,6 +1292,7 @@ export const useStore = create<VTMSState>()(
           traineeInterviews: _traineeInterviews,
           financialTransactions: _financialTransactions,
           currencyCode: _currencyCode,
+          currencyRates: _currencyRates,
           notifications: _notifications,
           dataLoaded: _dataLoaded,
           ...rest

@@ -5,41 +5,108 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Org display currency (set from app_settings on load). Amounts are not auto-converted. */
-export type CurrencyCode = 'USD' | 'SSP';
+/** Money is stored in USD. Other codes are view-only conversions via admin rates. */
+export type CurrencyCode = 'USD' | 'SSP' | 'UGX' | 'KES' | 'EUR' | 'GBP';
+
+export const STORAGE_CURRENCY: CurrencyCode = 'USD';
 
 export const CURRENCY_OPTIONS: { code: CurrencyCode; label: string }[] = [
   { code: 'USD', label: 'US Dollar (USD)' },
   { code: 'SSP', label: 'South Sudanese Pound (SSP)' },
+  { code: 'UGX', label: 'Ugandan Shilling (UGX)' },
+  { code: 'KES', label: 'Kenyan Shilling (KES)' },
+  { code: 'EUR', label: 'Euro (EUR)' },
+  { code: 'GBP', label: 'British Pound (GBP)' },
 ];
 
-const CURRENCY_FORMAT: Record<CurrencyCode, { locale: string; currency: string }> = {
-  USD: { locale: 'en-US', currency: 'USD' },
-  SSP: { locale: 'en-SS', currency: 'SSP' },
+const CURRENCY_FORMAT: Record<CurrencyCode, { locale: string; currency: string; maxFrac: number }> = {
+  USD: { locale: 'en-US', currency: 'USD', maxFrac: 2 },
+  SSP: { locale: 'en-SS', currency: 'SSP', maxFrac: 0 },
+  UGX: { locale: 'en-UG', currency: 'UGX', maxFrac: 0 },
+  KES: { locale: 'en-KE', currency: 'KES', maxFrac: 0 },
+  EUR: { locale: 'en-EU', currency: 'EUR', maxFrac: 2 },
+  GBP: { locale: 'en-GB', currency: 'GBP', maxFrac: 2 },
 };
 
-let displayCurrency: CurrencyCode = 'USD';
+const VIEW_CURRENCY_KEY = 'vtms-view-currency';
 
+/** units_per_usd: how many units of that currency equal 1 USD */
+let ratesByCode: Record<string, number> = { USD: 1 };
+
+let viewCurrency: CurrencyCode = (() => {
+  try {
+    const stored = localStorage.getItem(VIEW_CURRENCY_KEY);
+    if (stored && CURRENCY_OPTIONS.some((c) => c.code === stored)) {
+      return stored as CurrencyCode;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 'USD';
+})();
+
+export function setCurrencyRates(rates: Record<string, number>) {
+  ratesByCode = { USD: 1, ...rates };
+  if (!ratesByCode.USD) ratesByCode.USD = 1;
+}
+
+export function getCurrencyRates(): Record<string, number> {
+  return { ...ratesByCode };
+}
+
+export function setViewCurrency(code: string) {
+  if (!CURRENCY_OPTIONS.some((c) => c.code === code)) return;
+  viewCurrency = code as CurrencyCode;
+  try {
+    localStorage.setItem(VIEW_CURRENCY_KEY, code);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @deprecated use setViewCurrency — kept for store bootstrap compatibility */
 export function setDisplayCurrency(code: string) {
-  if (CURRENCY_OPTIONS.some((c) => c.code === code)) {
-    displayCurrency = code as CurrencyCode;
+  // Org setting no longer forces everyone's view; only seeds if user has no preference.
+  try {
+    if (!localStorage.getItem(VIEW_CURRENCY_KEY) && CURRENCY_OPTIONS.some((c) => c.code === code)) {
+      setViewCurrency(code);
+    }
+  } catch {
+    if (CURRENCY_OPTIONS.some((c) => c.code === code)) {
+      viewCurrency = code as CurrencyCode;
+    }
   }
 }
 
 export function getDisplayCurrency(): CurrencyCode {
-  return displayCurrency;
+  return viewCurrency;
 }
 
-export function formatCurrency(amount: number, currencyCode: CurrencyCode = displayCurrency): string {
+export function getViewCurrency(): CurrencyCode {
+  return viewCurrency;
+}
+
+/** Convert a USD-stored amount into the target (or current view) currency. */
+export function convertFromUsd(amountUsd: number, to: CurrencyCode = viewCurrency): number {
+  const rate = ratesByCode[to] ?? (to === 'USD' ? 1 : undefined);
+  if (rate == null || !Number.isFinite(rate) || rate <= 0) return amountUsd;
+  return amountUsd * rate;
+}
+
+export function formatCurrency(
+  amountUsd: number,
+  currencyCode: CurrencyCode = viewCurrency,
+): string {
+  const converted = convertFromUsd(amountUsd, currencyCode);
   const meta = CURRENCY_FORMAT[currencyCode] ?? CURRENCY_FORMAT.USD;
   try {
     return new Intl.NumberFormat(meta.locale, {
       style: 'currency',
       currency: meta.currency,
-      maximumFractionDigits: currencyCode === 'SSP' ? 0 : 2,
-    }).format(amount);
+      maximumFractionDigits: meta.maxFrac,
+    }).format(converted);
   } catch {
-    return `${currencyCode} ${amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+    return `${currencyCode} ${converted.toLocaleString('en-US', { maximumFractionDigits: meta.maxFrac })}`;
   }
 }
 
@@ -79,21 +146,10 @@ export function formatBatchTrainers(trades: { trainerName: string }[]): string {
   return names.length ? names.join(', ') : '—';
 }
 
-/**
- * Turn raw Supabase/Postgres errors into copy a field officer can act on,
- * instead of leaking internals like "new row violates row-level security
- * policy for table trainees".
- */
 export function friendlyError(err: unknown, fallback: string): string {
-  const message = err instanceof Error ? err.message : '';
-  if (/row-level security|permission denied|policy/i.test(message)) {
-    return 'Your role doesn’t have permission for this action.';
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
   }
-  if (/Failed to fetch|NetworkError|network/i.test(message)) {
-    return 'Can’t reach the server. Check your connection and try again.';
-  }
-  if (/duplicate key|already exists/i.test(message)) {
-    return 'This record already exists.';
-  }
-  return message || fallback;
+  if (typeof err === 'string') return err;
+  return fallback;
 }

@@ -53,6 +53,32 @@ const EMPTY_FORM: NewBatchForm = {
   trainersByTrade: {},
 };
 
+/** Module-scope so React does not remount inputs on every keystroke. */
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
+      {children}
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+    </div>
+  );
+}
+
+function inputCls(error?: string) {
+  return cn(
+    'w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 bg-white',
+    error ? 'border-red-300' : 'border-gray-200',
+  );
+}
+
 export default function Batches() {
   const navigate = useNavigate();
   const { batches, trainees, addBatch } = useStore();
@@ -90,11 +116,7 @@ export default function Batches() {
     if (!form.name.trim()) newErrors.name = 'Batch name is required';
     if (!form.startDate) newErrors.startDate = 'Start date is required';
     if (!form.selectedTrades.length) newErrors.trades = 'Select at least one trade';
-    for (const trade of form.selectedTrades) {
-      if (!form.trainersByTrade[trade]) {
-        newErrors[`trainer_${trade}`] = `Pick a trainer for ${trade}`;
-      }
-    }
+    // Trainers are optional — assign later from Trainers / Batch detail.
     if (!form.budgetAllocated || isNaN(Number(form.budgetAllocated)))
       newErrors.budgetAllocated = 'Valid budget is required';
     if (!form.targetEnrollment || isNaN(Number(form.targetEnrollment)))
@@ -117,8 +139,8 @@ export default function Batches() {
         targetEnrollment: Number(form.targetEnrollment),
         description: form.description.trim(),
         trades: form.selectedTrades.map((trade) => {
-          const trainerId = form.trainersByTrade[trade]!;
-          const trainer = trainers.find((t) => t.id === trainerId);
+          const trainerId = form.trainersByTrade[trade] || null;
+          const trainer = trainerId ? trainers.find((t) => t.id === trainerId) : undefined;
           return {
             trade,
             trainerId,
@@ -158,28 +180,6 @@ export default function Batches() {
       batchTrainees.length > 0 ? Math.round((graduated / batchTrainees.length) * 100) : 0;
     return { total: batchTrainees.length, graduated, dropped, enrolled, gradRate };
   };
-
-  const Field = ({
-    label,
-    error,
-    children,
-  }: {
-    label: string;
-    error?: string;
-    children: React.ReactNode;
-  }) => (
-    <div>
-      <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
-      {children}
-      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
-    </div>
-  );
-
-  const inputCls = (error?: string) =>
-    cn(
-      'w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 bg-white',
-      error ? 'border-red-300' : 'border-gray-200'
-    );
 
   const batchExportColumns = [
     { key: 'name', label: 'Batch' },
@@ -244,7 +244,7 @@ export default function Batches() {
               <input
                 className={inputCls(errors.name)}
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g. Batch 6 — 2026"
               />
             </Field>
@@ -253,14 +253,14 @@ export default function Batches() {
                 type="date"
                 className={inputCls(errors.startDate)}
                 value={form.startDate}
-                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))}
               />
             </Field>
             <Field label={`Budget (${getDisplayCurrency()}) *`} error={errors.budgetAllocated}>
               <input
                 className={inputCls(errors.budgetAllocated)}
                 value={form.budgetAllocated}
-                onChange={(e) => setForm({ ...form, budgetAllocated: e.target.value })}
+                onChange={(e) => setForm((prev) => ({ ...prev, budgetAllocated: e.target.value }))}
                 placeholder="3000"
               />
             </Field>
@@ -268,7 +268,7 @@ export default function Batches() {
               <input
                 className={inputCls(errors.targetEnrollment)}
                 value={form.targetEnrollment}
-                onChange={(e) => setForm({ ...form, targetEnrollment: e.target.value })}
+                onChange={(e) => setForm((prev) => ({ ...prev, targetEnrollment: e.target.value }))}
                 placeholder="40"
               />
             </Field>
@@ -278,14 +278,17 @@ export default function Batches() {
                   className={inputCls()}
                   rows={2}
                   value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
                 />
               </Field>
             </div>
           </div>
 
           <div>
-            <p className="text-xs font-semibold text-gray-600 mb-2">Trades & trainers *</p>
+            <p className="text-xs font-semibold text-gray-600 mb-2">Trades *</p>
+            <p className="text-[11px] text-gray-400 mb-2">
+              Trainers are optional — you can assign them later.
+            </p>
             {errors.trades && <p className="text-xs text-red-600 mb-2">{errors.trades}</p>}
             <div className="space-y-3">
               {TRADE_OPTIONS.map((trade) => {
@@ -310,23 +313,20 @@ export default function Batches() {
                           className={inputCls(errors[`trainer_${trade}`])}
                           value={form.trainersByTrade[trade] ?? ''}
                           onChange={(e) =>
-                            setForm({
-                              ...form,
-                              trainersByTrade: { ...form.trainersByTrade, [trade]: e.target.value },
-                            })
+                            setForm((prev) => ({
+                              ...prev,
+                              trainersByTrade: { ...prev.trainersByTrade, [trade]: e.target.value },
+                            }))
                           }
                         >
-                          <option value="">Select trainer…</option>
+                          <option value="">No trainer yet (optional)</option>
                           {options.map((t) => (
                             <option key={t.id} value={t.id}>{t.fullName}</option>
                           ))}
                         </select>
-                        {errors[`trainer_${trade}`] && (
-                          <p className="text-xs text-red-600 mt-1">{errors[`trainer_${trade}`]}</p>
-                        )}
                         {options.length === 0 && (
                           <p className="text-xs text-amber-700 mt-1">
-                            No trainers tagged for {trade}. Add trade tags on the Trainers page first.
+                            No trainers tagged for {trade} yet — you can still create the batch.
                           </p>
                         )}
                       </div>

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, User, Phone, MapPin, AlertCircle, Calendar,
@@ -13,6 +13,7 @@ import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../
 import { cn, formatDate, getVulnerabilityLabel, getAttendanceRate, friendlyError } from '../lib/utils';
 import { countTraineeDependencies } from '../lib/deleteGuards';
 import { formatDependencyBlock } from '../lib/lifecycle';
+import { supabase } from '../lib/supabase';
 import Modal from '../components/Modal';
 import TraineeDocuments from '../components/TraineeDocuments';
 import { COMPETENCY_LEVEL_LABELS, CASE_CATEGORY_LABELS } from '../types';
@@ -152,8 +153,29 @@ export default function TraineeProfile() {
   const [deleteBlocked, setDeleteBlocked] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   const trainee = useMemo(() => trainees.find((t) => t.id === id), [trainees, id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPhotoUrl(null);
+    if (!trainee?.id) return;
+    (async () => {
+      const { data } = await supabase
+        .from('trainee_documents')
+        .select('storage_path')
+        .eq('trainee_id', trainee.id)
+        .eq('document_type', 'photo')
+        .maybeSingle();
+      if (cancelled || !data?.storage_path) return;
+      const { data: signed } = await supabase.storage
+        .from('trainee-documents')
+        .createSignedUrl(data.storage_path, 3600);
+      if (!cancelled && signed?.signedUrl) setPhotoUrl(signed.signedUrl);
+    })();
+    return () => { cancelled = true; };
+  }, [trainee?.id]);
 
   const batch = useMemo(
     () => trainee ? batches.find((b) => b.id === trainee.batchId) : null,
@@ -418,8 +440,12 @@ export default function TraineeProfile() {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
           {/* Avatar */}
-          <div className="w-16 h-16 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xl font-bold shrink-0">
-            {trainee.firstName[0]}{trainee.lastName[0]}
+          <div className="w-16 h-16 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xl font-bold shrink-0 overflow-hidden ring-2 ring-primary-100">
+            {photoUrl ? (
+              <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <>{trainee.firstName[0]}{trainee.lastName[0]}</>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -588,6 +614,25 @@ export default function TraineeProfile() {
       <TraineeDocuments
         traineeId={trainee.id}
         traineeName={`${trainee.firstName} ${trainee.lastName}`}
+        onDocumentsChanged={() => {
+          // Refresh avatar when photo document changes
+          void (async () => {
+            const { data } = await supabase
+              .from('trainee_documents')
+              .select('storage_path')
+              .eq('trainee_id', trainee.id)
+              .eq('document_type', 'photo')
+              .maybeSingle();
+            if (!data?.storage_path) {
+              setPhotoUrl(null);
+              return;
+            }
+            const { data: signed } = await supabase.storage
+              .from('trainee-documents')
+              .createSignedUrl(data.storage_path, 3600);
+            setPhotoUrl(signed?.signedUrl ?? null);
+          })();
+        }}
       />
 
       <InfoCard title="Motivation & Availability" icon={Heart}>

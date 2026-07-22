@@ -336,12 +336,6 @@ export default function BatchDetail() {
       setEditError('Select at least one trade.');
       return;
     }
-    for (const trade of editForm.selectedTrades) {
-      if (!editForm.trainersByTrade[trade]) {
-        setEditError(`Pick a trainer for ${trade}.`);
-        return;
-      }
-    }
     setSaving(true);
     try {
       await updateBatch(batch.id, {
@@ -353,8 +347,8 @@ export default function BatchDetail() {
         targetEnrollment: Number(editForm.targetEnrollment) || 0,
         description: editForm.description.trim(),
         trades: editForm.selectedTrades.map((trade) => {
-          const trainerId = editForm.trainersByTrade[trade]!;
-          const trainer = trainers.find((t) => t.id === trainerId);
+          const trainerId = editForm.trainersByTrade[trade] || null;
+          const trainer = trainerId ? trainers.find((t) => t.id === trainerId) : undefined;
           return {
             trade,
             trainerId,

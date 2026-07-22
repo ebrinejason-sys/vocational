@@ -25,6 +25,7 @@ const BUCKET = 'trainee-documents';
 interface TraineeDocumentsProps {
   traineeId: string;
   traineeName: string;
+  onDocumentsChanged?: () => void;
 }
 
 interface DocRow {
@@ -51,7 +52,7 @@ function rowToDoc(row: DocRow): TraineeDocument {
   };
 }
 
-export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocumentsProps) {
+export default function TraineeDocuments({ traineeId, traineeName, onDocumentsChanged }: TraineeDocumentsProps) {
   const { profile } = useAuth();
   const mayEdit = profile ? canEdit(profile.role, 'trainees') : false;
   const [documents, setDocuments] = useState<TraineeDocument[]>([]);
@@ -119,6 +120,7 @@ export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocu
         if (insertError) throw insertError;
       }
       await loadDocuments();
+      onDocumentsChanged?.();
     } catch (err) {
       setError(friendlyError(err, 'Upload failed. Ensure the trainee-documents bucket exists in Supabase.'));
     } finally {
@@ -153,6 +155,7 @@ export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocu
       const { error: delError } = await supabase.from('trainee_documents').delete().eq('id', doc.id);
       if (delError) throw delError;
       await loadDocuments();
+      onDocumentsChanged?.();
     } catch (err) {
       setError(friendlyError(err, 'Could not delete document.'));
     }
@@ -180,7 +183,8 @@ export default function TraineeDocuments({ traineeId, traineeName }: TraineeDocu
         <h3 className="text-sm font-bold text-gray-800">Trainee Documents</h3>
       </div>
       <p className="text-xs text-gray-500 mb-4">
-        Upload and identify documents for <span className="font-semibold">{traineeName}</span>.
+        Upload National ID, recommendation letter, birth certificate, signed rules, and a profile photo for{' '}
+        <span className="font-semibold">{traineeName}</span>.
         Each document type is stored once per trainee.
       </p>
       {error && (

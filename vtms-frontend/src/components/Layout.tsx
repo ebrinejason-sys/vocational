@@ -13,6 +13,7 @@ import Brand from './Brand';
 import ThemeToggle from './ThemeToggle';
 import Preloader from './Preloader';
 import NotificationBell from './NotificationBell';
+import ViewCurrencySelect from './ViewCurrencySelect';
 
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exact?: boolean; domain?: Domain }[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
@@ -26,6 +27,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; exac
   { to: '/inventory', icon: Package, label: 'Inventory', domain: 'inventory' },
   { to: '/procurement', icon: ShoppingCart, label: 'Procurement', domain: 'inventory' },
   { to: '/financials', icon: DollarSign, label: 'Financials', domain: 'financials' },
+  { to: '/admin/currency', icon: DollarSign, label: 'Currency' },
   { to: '/graduation', icon: GraduationCap, label: 'Graduation', domain: 'graduation' },
   { to: '/alumni', icon: UserCheck, label: 'Alumni', domain: 'alumni' },
 ];
@@ -57,7 +59,6 @@ export default function Layout() {
           ...(profile.role === 'admin' || profile.role === 'director'
             ? [{ to: '/admin/activity', icon: Activity, label: 'Activity' as const, exact: false as const }]
             : []),
-          { to: '/admin/currency', icon: DollarSign, label: 'Currency' as const, exact: false as const },
         ]
       : [];
   const navItems = [...visibleNavItems, ...adminNav];
@@ -194,6 +195,7 @@ export default function Layout() {
             )}
           </div>
           <NotificationBell />
+          <ViewCurrencySelect />
           <ThemeToggle />
         </header>
 
