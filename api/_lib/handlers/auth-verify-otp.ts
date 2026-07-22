@@ -3,8 +3,8 @@ import {
   getAdminClient,
   signAccessToken,
   verifyPassword,
-} from '../_lib/auth';
-import { logActivity } from '../_lib/activity';
+} from '../auth';
+import { logActivity } from '../activity';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {

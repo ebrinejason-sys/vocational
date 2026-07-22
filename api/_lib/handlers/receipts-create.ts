@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAdminClient, getCallerFromRequest } from '../_lib/auth';
-import { sendEmail } from '../_lib/email';
-import { logActivity } from '../_lib/activity';
+import { getAdminClient, getCallerFromRequest } from '../auth';
+import { sendEmail } from '../email';
+import { logActivity } from '../activity';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {

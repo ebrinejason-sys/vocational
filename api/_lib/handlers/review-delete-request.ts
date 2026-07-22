@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAdminClient, getCallerFromRequest } from './_lib/auth';
-import { logActivity } from './_lib/activity';
-import { sendEmail } from './_lib/email';
+import { getAdminClient, getCallerFromRequest } from '../auth';
+import { logActivity } from '../activity';
+import { sendEmail } from '../email';
 
 async function executeDelete(
   admin: ReturnType<typeof getAdminClient>,

@@ -5,10 +5,10 @@ import {
   getCallerFromRequest,
   newToken,
   tokenExpiry,
-} from './_lib/auth';
-import { sendEmail } from './_lib/email';
-import { siteUrlFromRequest } from './_lib/siteUrl';
-import { logActivity } from './_lib/activity';
+} from '../auth';
+import { sendEmail } from '../email';
+import { siteUrlFromRequest } from '../siteUrl';
+import { logActivity } from '../activity';
 
 const ALLOWED_ROLES = [
   'admin', 'director', 'project_coordinator', 'trainer',

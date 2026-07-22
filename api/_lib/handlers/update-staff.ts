@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAdminClient, getCallerFromRequest } from './_lib/auth';
-import { logActivity } from './_lib/activity';
+import { getAdminClient, getCallerFromRequest } from '../auth';
+import { logActivity } from '../activity';
 
 const ALLOWED_ROLES = [
   'admin', 'director', 'project_coordinator', 'trainer',

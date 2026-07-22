@@ -4,9 +4,9 @@ import {
   hashPassword,
   signAccessToken,
   verifyPassword,
-} from '../_lib/auth';
-import { sendEmail } from '../_lib/email';
-import { generateOtpCode, logActivity } from '../_lib/activity';
+} from '../auth';
+import { sendEmail } from '../email';
+import { generateOtpCode, logActivity } from '../activity';
 
 const MAX_FAILED_ATTEMPTS = 8;
 const LOCKOUT_MINUTES = 15;

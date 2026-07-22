@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAdminClient, getCallerFromRequest, newToken, tokenExpiry } from './_lib/auth';
-import { sendEmail } from './_lib/email';
-import { siteUrlFromRequest } from './_lib/siteUrl';
-import { logActivity } from './_lib/activity';
+import { getAdminClient, getCallerFromRequest, newToken, tokenExpiry } from '../auth';
+import { sendEmail } from '../email';
+import { siteUrlFromRequest } from '../siteUrl';
+import { logActivity } from '../activity';
 
 /**
  * Admin-only: email a password-reset link to one staff member, or all visible staff.

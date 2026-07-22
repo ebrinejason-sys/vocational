@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAdminClient, getCallerFromRequest } from './_lib/auth';
-import { sendEmail } from './_lib/email';
+import { getAdminClient, getCallerFromRequest } from '../auth';
+import { sendEmail } from '../email';
 
 const MUTATOR_ROLES = ['finance_officer', 'director', 'admin'] as const;
 type MutatorRole = (typeof MUTATOR_ROLES)[number];

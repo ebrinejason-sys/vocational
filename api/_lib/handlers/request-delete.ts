@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAdminClient, getCallerFromRequest } from './_lib/auth';
-import { sendEmail } from './_lib/email';
-import { logActivity } from './_lib/activity';
-import { siteUrlFromRequest } from './_lib/siteUrl';
+import { getAdminClient, getCallerFromRequest } from '../auth';
+import { sendEmail } from '../email';
+import { logActivity } from '../activity';
+import { siteUrlFromRequest } from '../siteUrl';
 
 export const DELETE_ENTITY_TYPES = [
   'trainee',
