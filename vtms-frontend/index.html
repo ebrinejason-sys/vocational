@@ -15,6 +15,11 @@
     <!-- Set the theme class before first paint so there is no light/dark flash -->
     <script>
       (function () {
+        // Apex domain 308-redirects API POSTs to www and breaks login — stay on www.
+        if (location.hostname === 'scmtvet.com') {
+          location.replace('https://www.scmtvet.com' + location.pathname + location.search + location.hash);
+          return;
+        }
         try {
           var stored = localStorage.getItem('vtms-theme');
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;

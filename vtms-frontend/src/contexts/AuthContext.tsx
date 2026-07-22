@@ -128,48 +128,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signIn(email: string, password: string) {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), password }),
-    });
-    const data = (await res.json()) as {
-      accessToken?: string;
-      requiresOtp?: boolean;
-      email?: string;
-      error?: string;
-    };
-    if (!res.ok) {
-      return { error: data.error ?? 'Login failed' };
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        accessToken?: string;
+        requiresOtp?: boolean;
+        email?: string;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok) {
+        return { error: data.error ?? `Login failed (${res.status})` };
+      }
+      // Password OK — session is only issued after email OTP (never return a soft failure here).
+      if (data.accessToken) {
+        await applyAccessToken(data.accessToken);
+        if (!getUserIdFromToken()) {
+          return { error: 'Signed in, but session could not be established. Check JWT secret / profile.' };
+        }
+        return {};
+      }
+      return {
+        requiresOtp: true,
+        email: data.email ?? email.trim(),
+      };
+    } catch {
+      return {
+        error:
+          'Could not reach the login service. Open https://www.scmtvet.com/login , hard-refresh (Ctrl+Shift+R), then try again.',
+      };
     }
-    if (data.requiresOtp) {
-      return { requiresOtp: true, email: data.email ?? email.trim() };
-    }
-    if (!data.accessToken) {
-      return { error: data.error ?? 'Login failed' };
-    }
-    await applyAccessToken(data.accessToken);
-    if (!getUserIdFromToken()) {
-      return { error: 'Signed in, but session could not be established. Check JWT secret / profile.' };
-    }
-    return {};
   }
 
   async function verifyOtp(email: string, otp: string) {
-    const res = await fetch('/api/auth/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), otp: otp.trim() }),
-    });
-    const data = (await res.json()) as { accessToken?: string; error?: string };
-    if (!res.ok || !data.accessToken) {
-      return { error: data.error ?? 'Invalid code' };
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), otp: otp.trim() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { accessToken?: string; error?: string };
+      if (!res.ok || !data.accessToken) {
+        return { error: data.error ?? (res.ok ? 'Invalid code' : `Invalid code (${res.status})`) };
+      }
+      await applyAccessToken(data.accessToken);
+      if (!getUserIdFromToken()) {
+        return { error: 'Code accepted, but session could not be established.' };
+      }
+      return {};
+    } catch {
+      return {
+        error:
+          'Could not verify the code. Use https://www.scmtvet.com and hard-refresh, then request a new code.',
+      };
     }
-    await applyAccessToken(data.accessToken);
-    if (!getUserIdFromToken()) {
-      return { error: 'Code accepted, but session could not be established.' };
-    }
-    return {};
   }
 
   async function signOut() {
