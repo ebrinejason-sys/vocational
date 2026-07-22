@@ -13,9 +13,9 @@ import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../
 import { cn, formatDate, getVulnerabilityLabel, getAttendanceRate, friendlyError } from '../lib/utils';
 import { countTraineeDependencies } from '../lib/deleteGuards';
 import { formatDependencyBlock } from '../lib/lifecycle';
-import { supabase } from '../lib/supabase';
 import Modal from '../components/Modal';
 import TraineeDocuments from '../components/TraineeDocuments';
+import { getTraineePhotoSignedUrl } from '../lib/traineeDocuments';
 import { COMPETENCY_LEVEL_LABELS, CASE_CATEGORY_LABELS } from '../types';
 import type { TraineeStatus, CompetencyLevel, TradeType } from '../types';
 
@@ -162,17 +162,12 @@ export default function TraineeProfile() {
     setPhotoUrl(null);
     if (!trainee?.id) return;
     (async () => {
-      const { data } = await supabase
-        .from('trainee_documents')
-        .select('storage_path')
-        .eq('trainee_id', trainee.id)
-        .eq('document_type', 'photo')
-        .maybeSingle();
-      if (cancelled || !data?.storage_path) return;
-      const { data: signed } = await supabase.storage
-        .from('trainee-documents')
-        .createSignedUrl(data.storage_path, 3600);
-      if (!cancelled && signed?.signedUrl) setPhotoUrl(signed.signedUrl);
+      try {
+        const url = await getTraineePhotoSignedUrl(trainee.id);
+        if (!cancelled) setPhotoUrl(url);
+      } catch {
+        if (!cancelled) setPhotoUrl(null);
+      }
     })();
     return () => { cancelled = true; };
   }, [trainee?.id]);
@@ -615,22 +610,12 @@ export default function TraineeProfile() {
         traineeId={trainee.id}
         traineeName={`${trainee.firstName} ${trainee.lastName}`}
         onDocumentsChanged={() => {
-          // Refresh avatar when photo document changes
           void (async () => {
-            const { data } = await supabase
-              .from('trainee_documents')
-              .select('storage_path')
-              .eq('trainee_id', trainee.id)
-              .eq('document_type', 'photo')
-              .maybeSingle();
-            if (!data?.storage_path) {
+            try {
+              setPhotoUrl(await getTraineePhotoSignedUrl(trainee.id));
+            } catch {
               setPhotoUrl(null);
-              return;
             }
-            const { data: signed } = await supabase.storage
-              .from('trainee-documents')
-              .createSignedUrl(data.storage_path, 3600);
-            setPhotoUrl(signed?.signedUrl ?? null);
           })();
         }}
       />

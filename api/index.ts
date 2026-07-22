@@ -17,6 +17,7 @@ import notifyProcurementAssignment from './_lib/handlers/notify-procurement-assi
 import requestDelete from './_lib/handlers/request-delete';
 import reviewDeleteRequest from './_lib/handlers/review-delete-request';
 import receiptsCreate from './_lib/handlers/receipts-create';
+import traineeDocuments from './_lib/handlers/trainee-documents';
 
 type ApiHandler = (req: VercelRequest, res: VercelResponse) => unknown | Promise<unknown>;
 
@@ -34,6 +35,7 @@ const ROUTES: Record<string, ApiHandler> = {
   'request-delete': requestDelete,
   'review-delete-request': reviewDeleteRequest,
   'receipts/create': receiptsCreate,
+  'trainees/documents': traineeDocuments,
 };
 
 function resolvePath(req: VercelRequest): string {

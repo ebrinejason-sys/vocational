@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FileUp, FileText, Loader2, Trash2, ExternalLink } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { getUserIdFromToken } from '../lib/session';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
 import { friendlyError, cn } from '../lib/utils';
 import { confirmAdminDelete, promptDeleteReason, submitDeleteRequest } from '../lib/deleteRequests';
+import {
+  deleteTraineeDocument,
+  getTraineeDocumentSignedUrl,
+  listTraineeDocuments,
+  uploadTraineeDocument,
+  type TraineeDocumentRow,
+} from '../lib/traineeDocuments';
 import {
   TRAINEE_DOCUMENT_LABELS,
   type TraineeDocument,
@@ -20,26 +25,13 @@ const DOCUMENT_TYPES: TraineeDocumentType[] = [
   'photo',
 ];
 
-const BUCKET = 'trainee-documents';
-
 interface TraineeDocumentsProps {
   traineeId: string;
   traineeName: string;
   onDocumentsChanged?: () => void;
 }
 
-interface DocRow {
-  id: string;
-  trainee_id: string;
-  document_type: TraineeDocumentType;
-  file_name: string;
-  storage_path: string;
-  mime_type: string | null;
-  file_size: number | null;
-  uploaded_at: string;
-}
-
-function rowToDoc(row: DocRow): TraineeDocument {
+function rowToDoc(row: TraineeDocumentRow): TraineeDocument {
   return {
     id: row.id,
     traineeId: row.trainee_id,
@@ -62,67 +54,30 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
 
   const loadDocuments = useCallback(async () => {
     setLoading(true);
-    const { data, error: loadError } = await supabase
-      .from('trainee_documents')
-      .select('*')
-      .eq('trainee_id', traineeId)
-      .order('uploaded_at', { ascending: false });
-    if (loadError) {
-      setError(friendlyError(loadError, 'Could not load documents.'));
-      setDocuments([]);
-    } else {
-      setDocuments((data as DocRow[]).map(rowToDoc));
+    try {
+      const rows = await listTraineeDocuments(traineeId);
+      setDocuments(rows.map(rowToDoc));
       setError(null);
+    } catch (err) {
+      setError(friendlyError(err, 'Could not load documents.'));
+      setDocuments([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [traineeId]);
 
-  useEffect(() => { loadDocuments(); }, [loadDocuments]);
+  useEffect(() => { void loadDocuments(); }, [loadDocuments]);
 
   async function handleUpload(type: TraineeDocumentType, file: File) {
     if (!mayEdit) return;
     setUploading(type);
     setError(null);
     try {
-      const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
-      const storagePath = `${traineeId}/${type}/${Date.now()}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from(BUCKET)
-        .upload(storagePath, file, { upsert: true, contentType: file.type });
-      if (uploadError) throw uploadError;
-
-      const userId = getUserIdFromToken();
-      const existing = documents.find((d) => d.documentType === type);
-      if (existing) {
-        await supabase.storage.from(BUCKET).remove([existing.storagePath]).catch(() => {});
-        const { error: updateError } = await supabase
-          .from('trainee_documents')
-          .update({
-            file_name: file.name,
-            storage_path: storagePath,
-            mime_type: file.type,
-            file_size: file.size,
-            uploaded_by: userId,
-            uploaded_at: new Date().toISOString(),
-          })
-          .eq('id', existing.id);
-        if (updateError) throw updateError;
-      } else {
-        const { error: insertError } = await supabase.from('trainee_documents').insert({
-          trainee_id: traineeId,
-          document_type: type,
-          file_name: file.name,
-          storage_path: storagePath,
-          mime_type: file.type,
-          file_size: file.size,
-          uploaded_by: userId,
-        });
-        if (insertError) throw insertError;
-      }
+      await uploadTraineeDocument({ traineeId, documentType: type, file });
       await loadDocuments();
       onDocumentsChanged?.();
     } catch (err) {
-      setError(friendlyError(err, 'Upload failed. Ensure the trainee-documents bucket exists in Supabase.'));
+      setError(friendlyError(err, 'Upload failed.'));
     } finally {
       setUploading(null);
     }
@@ -131,7 +86,7 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
   async function handleDelete(doc: TraineeDocument) {
     if (!mayEdit) return;
     const label = `${TRAINEE_DOCUMENT_LABELS[doc.documentType]} — ${traineeName}`;
-    if (profile?.role !== 'admin') {
+    if (profile?.role !== 'admin' && profile?.role !== 'director' && profile?.role !== 'finance_officer') {
       const reason = promptDeleteReason(label);
       if (!reason) return;
       setError(null);
@@ -151,9 +106,7 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
     if (!confirmAdminDelete(label)) return;
     setError(null);
     try {
-      await supabase.storage.from(BUCKET).remove([doc.storagePath]).catch(() => {});
-      const { error: delError } = await supabase.from('trainee_documents').delete().eq('id', doc.id);
-      if (delError) throw delError;
+      await deleteTraineeDocument(doc.id);
       await loadDocuments();
       onDocumentsChanged?.();
     } catch (err) {
@@ -162,14 +115,12 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
   }
 
   async function openDocument(doc: TraineeDocument) {
-    const { data, error: urlError } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(doc.storagePath, 3600);
-    if (urlError || !data?.signedUrl) {
-      setError(friendlyError(urlError, 'Could not open document.'));
-      return;
+    try {
+      const signedUrl = await getTraineeDocumentSignedUrl(doc.id);
+      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(friendlyError(err, 'Could not open document.'));
     }
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
   }
 
   const docByType = Object.fromEntries(documents.map((d) => [d.documentType, d])) as Partial<
@@ -177,18 +128,18 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
   >;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4 border-b border-gray-50 pb-2">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2">
         <FileText className="w-4 h-4 text-primary-600" />
         <h3 className="text-sm font-bold text-gray-800">Trainee Documents</h3>
       </div>
       <p className="text-xs text-gray-500 mb-4">
         Upload National ID, recommendation letter, birth certificate, signed rules, and a profile photo for{' '}
-        <span className="font-semibold">{traineeName}</span>.
-        Each document type is stored once per trainee.
+        <span className="font-semibold text-gray-700">{traineeName}</span>.
+        Each document type is stored once per trainee (max 10 MB).
       </p>
       {error && (
-        <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-4">{error}</p>
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</p>
       )}
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
@@ -205,7 +156,7 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
                 key={type}
                 className={cn(
                   'flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border',
-                  doc ? 'border-green-100 bg-green-50/50' : 'border-gray-100 bg-gray-50/50',
+                  doc ? 'border-green-200 bg-green-50/50' : 'border-gray-200 bg-gray-50',
                 )}
               >
                 <div className="flex-1 min-w-0">
@@ -221,8 +172,8 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
                     <>
                       <button
                         type="button"
-                        onClick={() => openDocument(doc)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-primary-700 hover:bg-primary-50 rounded-lg"
+                        onClick={() => void openDocument(doc)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-primary-700 hover:bg-primary-50 rounded-lg border border-transparent"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                         View
@@ -230,8 +181,8 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
                       {mayEdit && (
                         <button
                           type="button"
-                          onClick={() => handleDelete(doc)}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
+                          onClick={() => void handleDelete(doc)}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg border border-transparent"
                           aria-label={`Delete ${TRAINEE_DOCUMENT_LABELS[type]}`}
                         >
                           <Trash2 className="w-4 h-4" />
@@ -241,8 +192,10 @@ export default function TraineeDocuments({ traineeId, traineeName, onDocumentsCh
                   )}
                   {mayEdit && (
                     <label className={cn(
-                      'inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg cursor-pointer',
-                      busy ? 'bg-gray-200 text-gray-500' : 'bg-primary-600 text-white hover:bg-primary-700',
+                      'inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg cursor-pointer border',
+                      busy
+                        ? 'bg-gray-200 text-gray-500 border-gray-200'
+                        : 'bg-primary-600 text-white border-primary-600 hover:bg-primary-700',
                     )}>
                       {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
                       {doc ? 'Replace' : 'Upload'}
