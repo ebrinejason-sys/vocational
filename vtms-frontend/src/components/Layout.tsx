@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Package,
   DollarSign, Heart, GraduationCap, UserCheck, Menu, X, Layers,
-  LogOut, ShieldCheck, Wrench, ShoppingCart, ClipboardCheck,
+  LogOut, ShieldCheck, Wrench, ShoppingCart, ClipboardCheck, Activity,
 } from 'lucide-react';
 import { cn, formatBatchTrades } from '../lib/utils';
 import { useStore } from '../store';
@@ -53,6 +53,9 @@ export default function Layout() {
       ? [
           ...(profile.role === 'admin'
             ? [{ to: '/admin/staff', icon: ShieldCheck, label: 'Staff' as const, exact: false as const }]
+            : []),
+          ...(profile.role === 'admin' || profile.role === 'director'
+            ? [{ to: '/admin/activity', icon: Activity, label: 'Activity' as const, exact: false as const }]
             : []),
           { to: '/admin/currency', icon: DollarSign, label: 'Currency' as const, exact: false as const },
         ]

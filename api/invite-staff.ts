@@ -8,6 +8,7 @@ import {
 } from './_lib/auth';
 import { sendEmail } from './_lib/email';
 import { siteUrlFromRequest } from './_lib/siteUrl';
+import { logActivity } from './_lib/activity';
 
 const ALLOWED_ROLES = [
   'admin', 'director', 'project_coordinator', 'trainer',
@@ -36,6 +37,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     if (!email || !fullName || !role || !ALLOWED_ROLES.includes(role as Role)) {
       res.status(400).json({ error: 'email, fullName, and a valid role are required' });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      res.status(400).json({ error: 'Enter a valid email address' });
       return;
     }
 
@@ -105,6 +110,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `<p>Hi ${fullName.trim()},</p>` +
         `<p>You've been invited to join the VTMS workspace as <strong>${role.replace(/_/g, ' ')}</strong>.</p>` +
         `<p><a href="${welcomeUrl}">Click here to set your password and sign in</a> (valid for 72 hours).</p>`,
+    });
+
+    await logActivity(admin, {
+      actorId: caller.id,
+      actorEmail: caller.profile.email,
+      actorName: caller.profile.full_name,
+      action: 'staff_invite',
+      entityType: 'profile',
+      entityId: userId,
+      summary: `Invited ${fullName.trim()} (${normalizedEmail}) as ${role}`,
+      metadata: { role, emailSent: mail.sent },
     });
 
     res.status(200).json({

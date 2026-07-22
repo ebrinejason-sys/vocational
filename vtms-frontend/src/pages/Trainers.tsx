@@ -60,6 +60,7 @@ export default function Trainers() {
       .from('profiles')
       .select('id, full_name, email, active, profile_trades(trade)')
       .eq('role', 'trainer')
+      .eq('hidden_from_staff', false)
       .order('full_name');
     if (!error && data) {
       setTrainers(

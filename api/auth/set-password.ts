@@ -4,6 +4,7 @@ import {
   hashPassword,
   signAccessToken,
 } from '../_lib/auth';
+import { logActivity } from '../_lib/activity';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -80,6 +81,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const accessToken = signAccessToken(profile.id, profile.email);
+    await logActivity(admin, {
+      actorId: profile.id,
+      actorEmail: profile.email,
+      actorName: profile.full_name,
+      action: mode === 'invite' ? 'password_set_invite' : 'password_set_reset',
+      entityType: 'profile',
+      entityId: profile.id,
+      summary: mode === 'invite'
+        ? `Accepted invite and set password (${profile.email})`
+        : `Reset password (${profile.email})`,
+    });
     res.status(200).json({
       accessToken,
       profile: {

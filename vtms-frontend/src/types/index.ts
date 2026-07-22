@@ -249,6 +249,24 @@ export interface FinancialTransaction {
   donorName: string;
 }
 
+/** Admin-only receipt issued against a recorded income transaction. */
+export interface Receipt {
+  id: string;
+  receiptNumber: string;
+  financialTransactionId: string | null;
+  batchId: string | null;
+  payerName: string;
+  payerEmail: string | null;
+  amount: number;
+  currencyCode: string;
+  category: string | null;
+  description: string | null;
+  notes: string | null;
+  issuedBy: string | null;
+  issuedAt: string;
+  emailedAt: string | null;
+}
+
 export interface AppNotification {
   id: string;
   userId: string;

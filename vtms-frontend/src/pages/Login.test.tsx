@@ -5,12 +5,14 @@ import Login from './Login';
 import { ThemeProvider } from '../lib/theme';
 
 const mockSignIn = vi.fn();
+const mockVerifyOtp = vi.fn();
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
     accessToken: null,
     profile: null,
     loading: false,
     signIn: (...args: unknown[]) => mockSignIn(...args),
+    verifyOtp: (...args: unknown[]) => mockVerifyOtp(...args),
     completeSignIn: vi.fn(),
     signOut: vi.fn(),
   }),
@@ -28,14 +30,15 @@ function renderLogin() {
 
 describe('Login', () => {
   it('submits email and password via custom auth', async () => {
-    mockSignIn.mockResolvedValue({});
+    mockSignIn.mockResolvedValue({ requiresOtp: true, email: 'staff@scm.org' });
     renderLogin();
 
     fireEvent.change(screen.getByPlaceholderText('you@streetchildren.org'), { target: { value: 'staff@scm.org' } });
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'secret123' } });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
     await waitFor(() => expect(mockSignIn).toHaveBeenCalledWith('staff@scm.org', 'secret123'));
+    await waitFor(() => expect(screen.getByText(/enter login code/i)).toBeDefined());
   });
 
   it('shows an error message when sign-in fails', async () => {
@@ -44,7 +47,7 @@ describe('Login', () => {
 
     fireEvent.change(screen.getByPlaceholderText('you@streetchildren.org'), { target: { value: 'staff@scm.org' } });
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'wrong' } });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
     await waitFor(() => expect(screen.getByText(/don’t match our records/)).toBeDefined());
   });

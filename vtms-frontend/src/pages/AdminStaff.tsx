@@ -90,7 +90,8 @@ export default function AdminStaff() {
     setLoading(true);
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role, active')
+      .select('id, full_name, email, role, active, hidden_from_staff')
+      .eq('hidden_from_staff', false)
       .order('full_name');
     if (!error && data) {
       setStaff(data.map((r) => ({

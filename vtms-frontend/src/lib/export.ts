@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import type { Receipt } from '../types';
 
 export interface ExportColumn {
   key: string;
@@ -91,6 +92,67 @@ export function exportToWord(
     <table border="1" cellpadding="4" cellspacing="0"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>
   </body></html>`;
   downloadBlob(new Blob([html], { type: 'application/msword' }), filename.endsWith('.doc') ? filename : `${filename}.doc`);
+}
+
+/** Generate and download a printable PDF receipt (admin-only feature). */
+export function generateReceiptPdf(receipt: Receipt) {
+  const doc = new jsPDF({ orientation: 'portrait', format: 'a5' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 14;
+
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Street Children Ministry', margin, 18);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Official Receipt', margin, 25);
+
+  doc.setDrawColor(13, 148, 136);
+  doc.setLineWidth(0.6);
+  doc.line(margin, 29, pageWidth - margin, 29);
+
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text(`Receipt No: ${receipt.receiptNumber}`, margin, 37);
+  doc.text(
+    `Date: ${new Date(receipt.issuedAt).toLocaleDateString()}`,
+    pageWidth - margin,
+    37,
+    { align: 'right' },
+  );
+  doc.setTextColor(0);
+
+  const rows: [string, string][] = [
+    ['Received from', receipt.payerName],
+    ['Amount', `${receipt.currencyCode} ${receipt.amount.toFixed(2)}`],
+    ['For', receipt.category ?? receipt.description ?? '—'],
+  ];
+  if (receipt.description && receipt.description !== receipt.category) {
+    rows.push(['Description', receipt.description]);
+  }
+  if (receipt.notes) rows.push(['Notes', receipt.notes]);
+
+  autoTable(doc, {
+    startY: 44,
+    body: rows,
+    theme: 'plain',
+    styles: { fontSize: 10, cellPadding: { top: 3, bottom: 3, left: 0, right: 4 } },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 32, textColor: [80, 80, 80] },
+      1: { cellWidth: pageWidth - margin * 2 - 32 },
+    },
+  });
+
+  const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  doc.setFontSize(8);
+  doc.setTextColor(120);
+  doc.text(
+    'This is a system-generated receipt from the VTMS finance module.',
+    margin,
+    finalY + 12,
+  );
+
+  doc.save(`receipt-${receipt.receiptNumber}.pdf`);
 }
 
 /** Open the browser print dialog for a page section. */

@@ -1,18 +1,21 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 import {
   TrendingUp, TrendingDown, Scale, Plus, ChevronDown,
-  FileText, AlertTriangle, Pencil, Trash2, Users, ShoppingBag, DollarSign,
+  FileText, AlertTriangle, Pencil, Trash2, Users, ShoppingBag, DollarSign, Receipt as ReceiptIcon, Mail, Download,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 import { canEdit } from '../lib/permissions';
-import { formatCurrency, formatDate, today, cn, friendlyError } from '../lib/utils';
-import type { FinancialTransaction, TransactionType } from '../types';
+import { formatCurrency, formatDate, today, cn, friendlyError, type CurrencyCode } from '../lib/utils';
+import { generateReceiptPdf } from '../lib/export';
+import { fetchReceiptsForBatch, createReceipt } from '../lib/receipts';
+import type { FinancialTransaction, TransactionType, Receipt } from '../types';
 import ExportToolbar from '../components/ExportToolbar';
+import Modal from '../components/Modal';
 
 const EXPENSE_COLORS = [
   '#0d9488', '#14b8a6', '#2dd4bf', '#5eead4', '#99f6e4',
@@ -44,6 +47,7 @@ export default function Financials() {
   } = useStore();
   const { profile } = useAuth();
   const mayEdit = profile ? canEdit(profile.role, 'financials') : false;
+  const isAdmin = profile?.role === 'admin';
   const [selectedBatchId, setSelectedBatchId] = useState(useStore.getState().activeBatchId);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -52,6 +56,67 @@ export default function Financials() {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Admin-only: generating and viewing receipts for recorded income.
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [receiptsLoading, setReceiptsLoading] = useState(false);
+  const [receiptTxn, setReceiptTxn] = useState<FinancialTransaction | null>(null);
+  const [receiptForm, setReceiptForm] = useState({ payerName: '', payerEmail: '', notes: '' });
+  const [receiptError, setReceiptError] = useState('');
+  const [receiptSaving, setReceiptSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin || !selectedBatchId) {
+      setReceipts([]);
+      return;
+    }
+    let cancelled = false;
+    setReceiptsLoading(true);
+    fetchReceiptsForBatch(selectedBatchId)
+      .then((rows) => { if (!cancelled) setReceipts(rows); })
+      .catch(() => { if (!cancelled) setReceipts([]); })
+      .finally(() => { if (!cancelled) setReceiptsLoading(false); });
+    return () => { cancelled = true; };
+  }, [isAdmin, selectedBatchId]);
+
+  function openReceiptModal(t: FinancialTransaction) {
+    setReceiptTxn(t);
+    setReceiptForm({ payerName: t.donorName || '', payerEmail: '', notes: '' });
+    setReceiptError('');
+  }
+
+  async function handleGenerateReceipt(e: React.FormEvent) {
+    e.preventDefault();
+    if (!receiptTxn) return;
+    if (!receiptForm.payerName.trim()) {
+      setReceiptError('Payer name is required.');
+      return;
+    }
+    setReceiptSaving(true);
+    setReceiptError('');
+    try {
+      const { receipt, emailSent, emailWarning } = await createReceipt({
+        financialTransactionId: receiptTxn.id,
+        payerName: receiptForm.payerName.trim(),
+        payerEmail: receiptForm.payerEmail.trim() || undefined,
+        notes: receiptForm.notes.trim() || undefined,
+      });
+      setReceipts((prev) => [receipt, ...prev]);
+      generateReceiptPdf(receipt);
+      setNotice(
+        receipt.payerEmail
+          ? emailSent
+            ? `Receipt ${receipt.receiptNumber} created and emailed to ${receipt.payerEmail}.`
+            : `Receipt ${receipt.receiptNumber} created, but the email could not be sent${emailWarning ? ` (${emailWarning})` : ''}.`
+          : `Receipt ${receipt.receiptNumber} created.`,
+      );
+      setReceiptTxn(null);
+    } catch (err) {
+      setReceiptError(friendlyError(err, 'Could not generate receipt.'));
+    } finally {
+      setReceiptSaving(false);
+    }
+  }
 
   const selectedBatch = batches.find((b) => b.id === selectedBatchId);
 
@@ -503,7 +568,7 @@ export default function Financials() {
                     <th className="text-left py-2 font-semibold text-gray-500 text-xs">Donor</th>
                     <th className="text-right py-2 font-semibold text-gray-500 text-xs">Amount</th>
                     <th className="text-right py-2 font-semibold text-gray-500 text-xs">Date</th>
-                    {mayEdit && <th className="text-right py-2 font-semibold text-gray-500 text-xs">Actions</th>}
+                    {(mayEdit || isAdmin) && <th className="text-right py-2 font-semibold text-gray-500 text-xs">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -519,14 +584,23 @@ export default function Financials() {
                       </td>
                       <td className="py-2.5 text-right font-semibold text-green-700">{formatCurrency(t.amount)}</td>
                       <td className="py-2.5 text-right text-gray-400 text-xs">{formatDate(t.date)}</td>
-                      {mayEdit && (
-                        <td className="py-2.5 text-right">
-                          <button type="button" onClick={() => openEdit(t)} className="p-1.5 text-gray-400 hover:text-primary-600" title="Edit">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button type="button" onClick={() => handleDelete(t)} className="p-1.5 text-gray-400 hover:text-red-600" title="Delete">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                      {(mayEdit || isAdmin) && (
+                        <td className="py-2.5 text-right whitespace-nowrap">
+                          {isAdmin && (
+                            <button type="button" onClick={() => openReceiptModal(t)} className="p-1.5 text-gray-400 hover:text-primary-600" title="Generate receipt">
+                              <ReceiptIcon className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {mayEdit && (
+                            <>
+                              <button type="button" onClick={() => openEdit(t)} className="p-1.5 text-gray-400 hover:text-primary-600" title="Edit">
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => handleDelete(t)} className="p-1.5 text-gray-400 hover:text-red-600" title="Delete">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                         </td>
                       )}
                     </tr>
@@ -536,7 +610,7 @@ export default function Financials() {
                   <tr className="border-t-2 border-gray-200">
                     <td colSpan={2} className="py-2.5 font-bold text-xs text-gray-600">Total Income</td>
                     <td className="py-2.5 text-right font-bold text-green-700">{formatCurrency(totalIncome)}</td>
-                    <td colSpan={mayEdit ? 2 : 1} />
+                    <td colSpan={(mayEdit || isAdmin) ? 2 : 1} />
                   </tr>
                 </tfoot>
               </table>
@@ -711,6 +785,67 @@ export default function Financials() {
         )}
       </div>
 
+      {/* Receipts (admin-only) */}
+      {isAdmin && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <ReceiptIcon className="w-4 h-4 text-primary-600" />
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Receipts</h3>
+          </div>
+          {receiptsLoading ? (
+            <p className="text-sm text-gray-400 text-center py-4">Loading receipts…</p>
+          ) : receipts.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">
+              No receipts issued for this batch yet. Use the receipt icon on an income row to generate one.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left py-2 font-semibold text-gray-500 text-xs">Receipt #</th>
+                    <th className="text-left py-2 font-semibold text-gray-500 text-xs">Payer</th>
+                    <th className="text-right py-2 font-semibold text-gray-500 text-xs">Amount</th>
+                    <th className="text-right py-2 font-semibold text-gray-500 text-xs">Issued</th>
+                    <th className="text-right py-2 font-semibold text-gray-500 text-xs">Emailed</th>
+                    <th className="text-right py-2 font-semibold text-gray-500 text-xs">Download</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {receipts.map((r) => (
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="py-2.5 font-mono text-xs text-gray-700">{r.receiptNumber}</td>
+                      <td className="py-2.5 text-gray-700 text-xs max-w-[160px] truncate">{r.payerName}</td>
+                      <td className="py-2.5 text-right font-semibold text-green-700">
+                        {formatCurrency(r.amount, r.currencyCode as CurrencyCode)}
+                      </td>
+                      <td className="py-2.5 text-right text-gray-400 text-xs">{formatDate(r.issuedAt)}</td>
+                      <td className="py-2.5 text-right text-xs">
+                        {r.emailedAt ? (
+                          <span className="inline-flex items-center gap-1 text-green-600"><Mail className="w-3 h-3" /> Sent</span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => generateReceiptPdf(r)}
+                          className="p-1.5 text-gray-400 hover:text-primary-600"
+                          title="Download PDF"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Production Sales Section */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Production Logs */}
@@ -804,6 +939,70 @@ export default function Financials() {
           )}
         </div>
       </div>
+
+      {/* Generate Receipt Modal (admin-only) */}
+      {receiptTxn && (
+        <Modal title={`Generate Receipt — ${receiptTxn.category}`} onClose={() => setReceiptTxn(null)}>
+          <form onSubmit={handleGenerateReceipt} className="space-y-4">
+            <p className="text-xs text-gray-500">
+              {formatCurrency(receiptTxn.amount)} · {formatDate(receiptTxn.date)}
+              {receiptTxn.description ? ` · ${receiptTxn.description}` : ''}
+            </p>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Payer name *</label>
+              <input
+                type="text"
+                required
+                value={receiptForm.payerName}
+                onChange={(e) => setReceiptForm({ ...receiptForm, payerName: e.target.value })}
+                placeholder="Who paid?"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">
+                Payer email <span className="font-normal text-gray-400">(optional — emails the receipt via Resend)</span>
+              </label>
+              <input
+                type="email"
+                value={receiptForm.payerEmail}
+                onChange={(e) => setReceiptForm({ ...receiptForm, payerEmail: e.target.value })}
+                placeholder="payer@example.com"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
+              <textarea
+                rows={2}
+                value={receiptForm.notes}
+                onChange={(e) => setReceiptForm({ ...receiptForm, notes: e.target.value })}
+                placeholder="Optional note printed on the receipt"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              />
+            </div>
+            {receiptError && (
+              <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{receiptError}</p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="submit"
+                disabled={receiptSaving}
+                className="px-4 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-60"
+              >
+                {receiptSaving ? 'Generating…' : 'Generate & Download'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setReceiptTxn(null)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

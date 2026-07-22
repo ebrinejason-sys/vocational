@@ -16,7 +16,11 @@ interface AuthContextValue {
   accessToken: string | null;
   profile: Profile | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signIn: (
+    email: string,
+    password: string,
+  ) => Promise<{ error?: string; requiresOtp?: boolean; email?: string }>;
+  verifyOtp: (email: string, otp: string) => Promise<{ error?: string }>;
   completeSignIn: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -129,13 +133,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), password }),
     });
-    const data = (await res.json()) as { accessToken?: string; error?: string };
-    if (!res.ok || !data.accessToken) {
+    const data = (await res.json()) as {
+      accessToken?: string;
+      requiresOtp?: boolean;
+      email?: string;
+      error?: string;
+    };
+    if (!res.ok) {
+      return { error: data.error ?? 'Login failed' };
+    }
+    if (data.requiresOtp) {
+      return { requiresOtp: true, email: data.email ?? email.trim() };
+    }
+    if (!data.accessToken) {
       return { error: data.error ?? 'Login failed' };
     }
     await applyAccessToken(data.accessToken);
     if (!getUserIdFromToken()) {
       return { error: 'Signed in, but session could not be established. Check JWT secret / profile.' };
+    }
+    return {};
+  }
+
+  async function verifyOtp(email: string, otp: string) {
+    const res = await fetch('/api/auth/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), otp: otp.trim() }),
+    });
+    const data = (await res.json()) as { accessToken?: string; error?: string };
+    if (!res.ok || !data.accessToken) {
+      return { error: data.error ?? 'Invalid code' };
+    }
+    await applyAccessToken(data.accessToken);
+    if (!getUserIdFromToken()) {
+      return { error: 'Code accepted, but session could not be established.' };
     }
     return {};
   }
@@ -149,7 +181,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ accessToken, profile, loading, signIn, completeSignIn, signOut }}>
+    <AuthContext.Provider
+      value={{ accessToken, profile, loading, signIn, verifyOtp, completeSignIn, signOut }}
+    >
       {children}
     </AuthContext.Provider>
   );

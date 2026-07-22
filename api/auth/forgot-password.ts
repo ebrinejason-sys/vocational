@@ -3,6 +3,8 @@ import { getAdminClient, newToken, tokenExpiry } from '../_lib/auth';
 import { sendEmail } from '../_lib/email';
 import { siteUrlFromRequest } from '../_lib/siteUrl';
 
+const RESEND_COOLDOWN_SECONDS = 60;
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -25,7 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Case-insensitive match (older profiles may not be lowercased)
     const { data: profile, error: profileError } = await admin
       .from('profiles')
-      .select('id, full_name, email, active')
+      .select('id, full_name, email, active, password_reset_last_sent_at')
       .ilike('email', normalized)
       .maybeSingle();
 
@@ -45,12 +47,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    // Cooldown avoids inbox-flooding / Resend quota abuse from repeated clicks.
+    // Stays silent (same generic message) so this can't be used to enumerate accounts.
+    if (
+      profile.password_reset_last_sent_at &&
+      Date.now() - new Date(profile.password_reset_last_sent_at).getTime() < RESEND_COOLDOWN_SECONDS * 1000
+    ) {
+      res.status(200).json({ ok: true, message: genericMessage, emailSent: false });
+      return;
+    }
+
     const resetToken = newToken();
     const { error: updateError } = await admin
       .from('profiles')
       .update({
         password_reset_token: resetToken,
         password_reset_expires_at: tokenExpiry(24),
+        password_reset_last_sent_at: new Date().toISOString(),
       })
       .eq('id', profile.id);
 

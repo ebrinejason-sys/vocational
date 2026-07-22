@@ -1,6 +1,8 @@
 -- ============================================================
 -- VTMS — ALL LIVE DATABASE UPDATES (single idempotent script)
 -- ============================================================
+-- Prefer the shorter APPLY_NOW_IN_SUPABASE.sql if you only need
+-- custom auth + lockout + receipts (already ran the big migrate).
 -- Paste this ENTIRE file into Supabase Dashboard → SQL Editor → Run.
 --
 -- Safe to re-run: skips objects that already exist and refreshes
@@ -718,5 +720,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS profiles_invite_token_idx
   ON public.profiles(invite_token) WHERE invite_token IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS profiles_password_reset_token_idx
   ON public.profiles(password_reset_token) WHERE password_reset_token IS NOT NULL;
+
+-- ── 12. Login lockout & reset cooldown ───────────────────────
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password_reset_last_sent_at TIMESTAMPTZ;
+
+-- ── 13. Admin-only receipts ───────────────────────────────────
+CREATE SEQUENCE IF NOT EXISTS public.receipt_number_seq;
+
+CREATE TABLE IF NOT EXISTS public.receipts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    receipt_number TEXT UNIQUE NOT NULL
+      DEFAULT ('RCT-' || to_char(NOW(), 'YYYY') || '-' || lpad(nextval('public.receipt_number_seq')::text, 6, '0')),
+    financial_transaction_id UUID REFERENCES public.financial_transactions(id) ON DELETE SET NULL,
+    batch_id UUID REFERENCES public.batches(id) ON DELETE SET NULL,
+    payer_name TEXT NOT NULL,
+    payer_email TEXT,
+    amount DECIMAL(12,2) NOT NULL,
+    currency_code TEXT NOT NULL DEFAULT 'USD',
+    category TEXT,
+    description TEXT,
+    notes TEXT,
+    issued_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    emailed_at TIMESTAMPTZ
+);
+
+ALTER TABLE public.receipts ENABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON TABLE public.receipts TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE public.receipt_number_seq TO anon, authenticated, service_role;
+
+DROP POLICY IF EXISTS receipts_select ON public.receipts;
+CREATE POLICY receipts_select ON public.receipts FOR SELECT
+  USING (current_role_is(ARRAY['admin']::user_role[]));
+
+DROP POLICY IF EXISTS receipts_insert ON public.receipts;
+CREATE POLICY receipts_insert ON public.receipts FOR INSERT
+  WITH CHECK (current_role_is(ARRAY['admin']::user_role[]));
+
+DROP POLICY IF EXISTS receipts_update ON public.receipts;
+CREATE POLICY receipts_update ON public.receipts FOR UPDATE
+  USING (current_role_is(ARRAY['admin']::user_role[]))
+  WITH CHECK (current_role_is(ARRAY['admin']::user_role[]));
+
+DROP POLICY IF EXISTS receipts_delete ON public.receipts;
+CREATE POLICY receipts_delete ON public.receipts FOR DELETE
+  USING (current_role_is(ARRAY['admin']::user_role[]));
 
 SELECT 'VTMS migration complete' AS status, NOW() AS completed_at;

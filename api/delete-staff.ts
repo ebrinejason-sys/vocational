@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAdminClient, getCallerFromRequest } from './_lib/auth';
+import { logActivity } from './_lib/activity';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -27,11 +28,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const admin = getAdminClient();
     const { data: target } = await admin
       .from('profiles')
-      .select('role, active')
+      .select('role, active, email, full_name, hidden_from_staff')
       .eq('id', userId)
       .single();
     if (!target) {
       res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    if (target.hidden_from_staff) {
+      res.status(403).json({ error: 'This account cannot be deleted from Staff' });
       return;
     }
 
@@ -65,6 +70,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(500).json({ error: delError.message });
       return;
     }
+
+    await logActivity(admin, {
+      actorId: caller.id,
+      actorEmail: caller.profile.email,
+      actorName: caller.profile.full_name,
+      action: 'staff_delete',
+      entityType: 'profile',
+      entityId: userId,
+      summary: `Deleted staff ${target.full_name ?? ''} (${target.email ?? userId})`,
+      metadata: { role: target.role },
+    });
 
     res.status(200).json({ ok: true });
   } catch (err) {

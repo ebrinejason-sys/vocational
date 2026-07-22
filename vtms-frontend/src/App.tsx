@@ -24,6 +24,7 @@ import Alumni from './pages/Alumni';
 import AdminStaff from './pages/AdminStaff';
 import AdminCurrency from './pages/AdminCurrency';
 import Interviews from './pages/Interviews';
+import ActivityLog from './pages/ActivityLog';
 import Trainers from './pages/Trainers';
 
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="alumni" element={<RequireRole roles={rolesWithAccess('alumni')}><Alumni /></RequireRole>} />
             <Route path="trainers" element={<RequireRole roles={rolesWithAccess('batches')}><Trainers /></RequireRole>} />
             <Route path="admin/staff" element={<RequireRole roles={['admin']}><AdminStaff /></RequireRole>} />
+            <Route path="admin/activity" element={<RequireRole roles={['admin', 'director']}><ActivityLog /></RequireRole>} />
             <Route path="admin/currency" element={<RequireRole roles={['admin', 'director', 'finance_officer']}><AdminCurrency /></RequireRole>} />
             <Route path="more" element={<div className="p-6 text-gray-500 text-sm">Settings coming soon</div>} />
           </Route>
