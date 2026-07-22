@@ -19,9 +19,13 @@ export const CURRENCY_OPTIONS: { code: CurrencyCode; label: string }[] = [
   { code: 'GBP', label: 'British Pound (GBP)' },
 ];
 
-const CURRENCY_FORMAT: Record<CurrencyCode, { locale: string; currency: string; maxFrac: number }> = {
+const CURRENCY_FORMAT: Record<
+  CurrencyCode,
+  { locale: string; currency: string; maxFrac: number; /** Override Intl symbol when browsers get it wrong */ symbol?: string }
+> = {
   USD: { locale: 'en-US', currency: 'USD', maxFrac: 2 },
-  SSP: { locale: 'en-SS', currency: 'SSP', maxFrac: 0 },
+  // Intl often renders SSP as £; use SSD as the display symbol.
+  SSP: { locale: 'en-US', currency: 'SSP', maxFrac: 0, symbol: 'SSD' },
   UGX: { locale: 'en-UG', currency: 'UGX', maxFrac: 0 },
   KES: { locale: 'en-KE', currency: 'KES', maxFrac: 0 },
   EUR: { locale: 'en-EU', currency: 'EUR', maxFrac: 2 },
@@ -99,6 +103,13 @@ export function formatCurrency(
 ): string {
   const converted = convertFromUsd(amountUsd, currencyCode);
   const meta = CURRENCY_FORMAT[currencyCode] ?? CURRENCY_FORMAT.USD;
+  if (meta.symbol) {
+    const amount = converted.toLocaleString('en-US', {
+      maximumFractionDigits: meta.maxFrac,
+      minimumFractionDigits: meta.maxFrac > 0 ? Math.min(2, meta.maxFrac) : 0,
+    });
+    return `${meta.symbol} ${amount}`;
+  }
   try {
     return new Intl.NumberFormat(meta.locale, {
       style: 'currency',

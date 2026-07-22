@@ -113,7 +113,7 @@ export default function AdminCurrency() {
         {canEditRates ? (
           <form onSubmit={handleSaveRate} className="space-y-3 pt-2 border-t border-gray-50">
             <p className="text-xs text-gray-500">
-              Set how many units of a currency equal <strong>1 USD</strong> (e.g. SSP 3,500).
+              Set how many units of a currency equal <strong>1 USD</strong> (e.g. SSP ≈ 4,850).
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>

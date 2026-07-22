@@ -11,12 +11,15 @@ CREATE TABLE IF NOT EXISTS public.currency_rates (
 
 INSERT INTO public.currency_rates (code, label, units_per_usd) VALUES
   ('USD', 'US Dollar', 1),
-  ('SSP', 'South Sudanese Pound', 1),
-  ('UGX', 'Ugandan Shilling', 1),
-  ('KES', 'Kenyan Shilling', 1),
-  ('EUR', 'Euro', 1),
-  ('GBP', 'British Pound', 1)
-ON CONFLICT (code) DO NOTHING;
+  ('SSP', 'South Sudanese Pound', 4851),
+  ('UGX', 'Ugandan Shilling', 3703),
+  ('KES', 'Kenyan Shilling', 129.3),
+  ('EUR', 'Euro', 0.8742),
+  ('GBP', 'British Pound', 0.7433)
+ON CONFLICT (code) DO UPDATE SET
+  label = EXCLUDED.label,
+  units_per_usd = EXCLUDED.units_per_usd,
+  updated_at = NOW();
 
 GRANT ALL ON TABLE public.currency_rates TO anon, authenticated, service_role;
 ALTER TABLE public.currency_rates ENABLE ROW LEVEL SECURITY;
