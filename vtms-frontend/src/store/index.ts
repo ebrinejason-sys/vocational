@@ -476,6 +476,7 @@ interface VTMSState {
   addCaseNote: (n: CaseNote) => void;
   updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => Promise<void>;
   addInventoryItem: (item: Omit<InventoryItem, 'id'>) => Promise<void>;
+  deleteInventoryItem: (id: string) => Promise<void>;
   logInventoryUsage: (usage: Omit<InventoryUsage, 'id'>) => Promise<void>;
   addProcurementRequest: (input: {
     itemId: string;
@@ -832,6 +833,26 @@ export const useStore = create<VTMSState>()(
           inventoryItems: s.inventoryItems.map((i) =>
             i.id === id ? inventoryItemFromRow(data as InventoryItemRow) : i
           ),
+        }));
+      },
+
+      deleteInventoryItem: async (id) => {
+        const { error: usageError } = await supabase
+          .from('inventory_usage')
+          .delete()
+          .eq('item_id', id);
+        if (usageError) throw usageError;
+        const { error: procError } = await supabase
+          .from('procurement_requests')
+          .delete()
+          .eq('item_id', id);
+        if (procError) throw procError;
+        const { error } = await supabase.from('inventory_items').delete().eq('id', id);
+        if (error) throw error;
+        set((s) => ({
+          inventoryItems: s.inventoryItems.filter((i) => i.id !== id),
+          inventoryUsage: s.inventoryUsage.filter((u) => u.itemId !== id),
+          procurementRequests: s.procurementRequests.filter((p) => p.itemId !== id),
         }));
       },
 

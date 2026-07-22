@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { UserPlus, Trash2, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { UserPlus, Trash2, Shield, ChevronDown, ChevronUp, KeyRound } from 'lucide-react';
 import { getAccessToken } from '../lib/session';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -53,7 +53,7 @@ function AccessPreview({ role }: { role: Role }) {
 async function staffApi(
   endpoint: string,
   body: Record<string, unknown>,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; sent?: number; failed?: number; warning?: string }> {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -62,11 +62,21 @@ async function staffApi(
     },
     body: JSON.stringify(body),
   });
+  const data = await res.json().catch(() => ({})) as {
+    error?: string;
+    sent?: number;
+    failed?: number;
+    warning?: string;
+  };
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    return { ok: false, error: (data as { error?: string }).error ?? 'Request failed' };
+    return { ok: false, error: data.error ?? 'Request failed', sent: data.sent, failed: data.failed };
   }
-  return { ok: true };
+  return {
+    ok: true,
+    sent: data.sent,
+    failed: data.failed,
+    warning: data.warning,
+  };
 }
 
 export default function AdminStaff() {
@@ -75,6 +85,7 @@ export default function AdminStaff() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [bulkResetting, setBulkResetting] = useState(false);
   const [form, setForm] = useState<{
     email: string;
     fullName: string;
@@ -120,31 +131,20 @@ export default function AdminStaff() {
     e.preventDefault();
     setSubmitting(true);
     setMessage(null);
-
     if (form.role === 'trainer' && form.trades.length === 0) {
+      setMessage({ type: 'error', text: 'Select at least one trade for trainers' });
       setSubmitting(false);
-      setMessage({ type: 'error', text: 'Select at least one trade for a trainer' });
       return;
     }
-
-    const res = await fetch('/api/invite-staff', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${getAccessToken() ?? ''}`,
-      },
-      body: JSON.stringify({
-        email: form.email,
-        fullName: form.fullName,
-        role: form.role,
-        trades: form.role === 'trainer' ? form.trades : undefined,
-      }),
+    const result = await staffApi('/api/invite-staff', {
+      email: form.email,
+      fullName: form.fullName,
+      role: form.role,
+      trades: form.role === 'trainer' ? form.trades : undefined,
     });
-
     setSubmitting(false);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setMessage({ type: 'error', text: body.error ?? 'Failed to send invite' });
+    if (!result.ok) {
+      setMessage({ type: 'error', text: result.error ?? 'Invite failed' });
       return;
     }
     setMessage({ type: 'success', text: `Invite sent to ${form.email}` });
@@ -184,6 +184,48 @@ export default function AdminStaff() {
     });
   }
 
+  async function handleSendPasswordReset(member: StaffProfile) {
+    setPendingId(member.id);
+    setMessage(null);
+    const result = await staffApi('/api/reset-staff-password', { userId: member.id });
+    setPendingId(null);
+    if (!result.ok) {
+      setMessage({ type: 'error', text: result.error ?? 'Could not send password reset' });
+      return;
+    }
+    setMessage({
+      type: 'success',
+      text: result.warning
+        ? `Reset emailed to ${member.email} (note: ${result.warning})`
+        : `Password reset link sent to ${member.email}`,
+    });
+  }
+
+  async function handleSendPasswordResetAll() {
+    const activeCount = staff.filter((s) => s.active).length;
+    const confirmed = window.confirm(
+      `Email a password-reset link to all ${activeCount} active staff?\n\n` +
+        'They will set a new password (72-hour link), then sign in with email + password + OTP.',
+    );
+    if (!confirmed) return;
+    setBulkResetting(true);
+    setMessage(null);
+    const result = await staffApi('/api/reset-staff-password', { all: true });
+    setBulkResetting(false);
+    if (!result.ok) {
+      setMessage({ type: 'error', text: result.error ?? 'Could not send password resets' });
+      return;
+    }
+    const sent = result.sent ?? 0;
+    const failed = result.failed ?? 0;
+    setMessage({
+      type: failed > 0 && sent === 0 ? 'error' : 'success',
+      text: failed > 0
+        ? `Sent ${sent} reset email(s); ${failed} failed.${result.warning ? ` ${result.warning}` : ''}`
+        : `Password reset links sent to ${sent} staff member(s).`,
+    });
+  }
+
   async function handleDelete(member: StaffProfile) {
     if (member.id === currentUser?.id) return;
     const confirmed = window.confirm(
@@ -208,7 +250,7 @@ export default function AdminStaff() {
       <div>
         <h2 className="text-xl font-bold text-gray-900">Staff &amp; Roles</h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          Invite staff, assign roles (which control module access), deactivate accounts, or remove users.
+          Invite staff, assign roles (which control module access), send password resets after the auth update, or remove users.
         </p>
       </div>
 
@@ -267,10 +309,10 @@ export default function AdminStaff() {
                   type="button"
                   onClick={() => toggleTrade(trade)}
                   className={cn(
-                    'text-xs font-semibold px-2.5 py-1 rounded-full border',
+                    'text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors',
                     form.trades.includes(trade)
                       ? 'bg-primary-600 text-white border-primary-600'
-                      : 'bg-white text-gray-600 border-gray-200',
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300',
                   )}
                 >
                   {trade}
@@ -293,8 +335,22 @@ export default function AdminStaff() {
       </form>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <h3 className="text-sm font-semibold text-gray-700">Staff ({staff.length})</h3>
+          <button
+            type="button"
+            disabled={bulkResetting || loading || staff.length === 0}
+            onClick={() => void handleSendPasswordResetAll()}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+              bulkResetting || loading
+                ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                : 'border-amber-200 text-amber-800 bg-amber-50 hover:bg-amber-100',
+            )}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            {bulkResetting ? 'Sending resets…' : 'Invite all to reset password'}
+          </button>
         </div>
         {loading ? (
           <div className="p-6 text-center text-sm text-gray-400">Loading…</div>
@@ -302,7 +358,7 @@ export default function AdminStaff() {
           <ul className="divide-y divide-gray-50">
             {staff.map((s) => {
               const isSelf = s.id === currentUser?.id;
-              const busy = pendingId === s.id;
+              const busy = pendingId === s.id || bulkResetting;
               const expanded = expandedId === s.id;
               return (
                 <li key={s.id} className="px-5 py-4 space-y-3">
@@ -338,6 +394,16 @@ export default function AdminStaff() {
                         )}
                       >
                         {s.active ? 'Active' : 'Inactive'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!s.active || busy}
+                        onClick={() => void handleSendPasswordReset(s)}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        title="Email password reset link"
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        Reset password
                       </button>
                       <button
                         type="button"

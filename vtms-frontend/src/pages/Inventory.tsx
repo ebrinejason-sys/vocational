@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Package, AlertTriangle, Plus, ShoppingCart, CheckCircle2,
-  TrendingDown, DollarSign, ClipboardList,
+  TrendingDown, DollarSign, ClipboardList, Trash2,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
@@ -60,6 +60,7 @@ const EMPTY_RECEIVE: ReceiveForm = { itemId: '', quantity: '', note: '' };
 export default function Inventory() {
   const { profile } = useAuth();
   const mayEdit = profile ? canEdit(profile.role, 'inventory') : false;
+  const mayDelete = profile?.role === 'admin';
   const {
     inventoryItems,
     inventoryUsage,
@@ -67,6 +68,7 @@ export default function Inventory() {
     batches,
     addInventoryItem,
     updateInventoryItem,
+    deleteInventoryItem,
     logInventoryUsage,
   } = useStore();
 
@@ -240,6 +242,22 @@ export default function Inventory() {
     });
   }
 
+  async function handleDeleteItem(item: InventoryItem) {
+    const confirmed = window.confirm(
+      `Delete “${item.name}” from inventory?\n\nThis also removes its usage and procurement history.`,
+    );
+    if (!confirmed) return;
+    setFormError(null);
+    try {
+      await deleteInventoryItem(item.id);
+      if (editingItem?.id === item.id) setEditingItem(null);
+      setBanner(`Deleted ${item.name}.`);
+      setTimeout(() => setBanner(null), 3000);
+    } catch (err) {
+      setFormError(friendlyError(err, 'Failed to delete inventory item.'));
+    }
+  }
+
   const inventoryExportRows = inventoryItems.map((item) => ({
     name: item.name,
     category: item.category,
@@ -395,7 +413,7 @@ export default function Inventory() {
                   <th className="px-3 py-3 font-semibold">Unit cost</th>
                   <th className="px-3 py-3 font-semibold">Value</th>
                   <th className="px-5 py-3 font-semibold">Status</th>
-                  {mayEdit && <th className="px-5 py-3 font-semibold">Edit</th>}
+                  {(mayEdit || mayDelete) && <th className="px-5 py-3 font-semibold">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -418,15 +436,30 @@ export default function Inventory() {
                           {low ? 'Low' : 'OK'}
                         </span>
                       </td>
-                      {mayEdit && (
+                      {(mayEdit || mayDelete) && (
                         <td className="px-5 py-3">
-                          <button
-                            type="button"
-                            onClick={() => openEditItem(item)}
-                            className="text-xs font-semibold text-primary-700 hover:underline"
-                          >
-                            Edit stock
-                          </button>
+                          <div className="flex items-center gap-3">
+                            {mayEdit && (
+                              <button
+                                type="button"
+                                onClick={() => openEditItem(item)}
+                                className="text-xs font-semibold text-primary-700 hover:underline"
+                              >
+                                Edit stock
+                              </button>
+                            )}
+                            {mayDelete && (
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteItem(item)}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline"
+                                title="Delete item"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
